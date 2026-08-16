@@ -250,7 +250,23 @@ traceback.
 
 ## Testing the result
 
-Beyond "it opens":
+The workflow runs `SweepDesign.exe --selftest` against the frozen build and
+fails the job if it does not pass. You can run the same check on any copy:
+
+```
+SweepDesign.exe --selftest report.txt
+```
+
+It writes a real file in every export format the program offers and does a
+known-answer check on the engine, then exits 0 or 1. That specific test
+exists because v1.0 shipped unable to export SVG: matplotlib loads output
+backends lazily inside `savefig()`, so PyInstaller never saw the import,
+and every other check in this file passed on a build that could not save
+the format it defaults to. **A new export format therefore needs adding to
+`EXPORT_FORMATS` in `sweep_design.py` and to `hiddenimports` in the spec** --
+the self-test enforces the second from the first.
+
+Then, by hand, beyond "it opens":
 
 1. Add three sweeps with different bandwidths — the metrics table should
    show 8 columns and the grid should be centred.

@@ -37,7 +37,7 @@ from sweep_engine import (
     SweepParams, SWEEP_TYPES, TAPER_TYPES,
     generate_sweep, compute_spectrum, compute_autocorrelation, compute_envelope,
     correlate_signals, stack_sweep, describe_params,
-    compute_sweep_metrics, METRIC_COLUMNS, metric_values,
+    compute_sweep_metrics, METRIC_COLUMNS, metric_values, format_metrics,
 )
 
 def _app_dir() -> str:
@@ -233,7 +233,7 @@ GLOSSARY_NOTE = (
 GLOSSARY_FS_MAX = 12.0
 GLOSSARY_FS_MIN = 5.5
 
-APP_VERSION = "1.0"
+APP_VERSION = "1.0.1"
 
 # Credit / licence line. Put your own name in AUTHOR if you want the credit;
 # the licence wording below is the standard public-domain dedication from
@@ -317,6 +317,24 @@ ABOUT_TEXT = (
     f"Built and shared freely by {AUTHOR}."
 )
 
+
+# Export formats offered by the Export button: (format, backend module, tip).
+#
+# The backend module is named because matplotlib loads it LAZILY, inside
+# savefig(), so a frozen build's dependency analysis never sees the import and
+# leaves it out. That is not hypothetical: v1.0 shipped without
+# backend_svg and SVG export -- the default -- failed on Windows with
+# "No module named 'matplotlib.backends.backend_svg'" while PNG worked,
+# because the Agg canvas that Tk already pulls in writes PNG itself.
+# sweep_design.spec lists these as hiddenimports and --selftest exercises
+# every one against a real file, so adding a format here is enough to keep
+# all three in step.
+EXPORT_FORMATS = (
+    ("svg", "matplotlib.backends.backend_svg",
+     "Vector format -- scales cleanly for print/slides."),
+    ("png", "matplotlib.backends.backend_agg",
+     "Raster format -- simplest to paste into documents or email directly."),
+)
 
 ABOUT_WRAP = "6i"        # About dialog text width -- 2x Tk's 3i default
 TOOLTIP_FONT_SIZE = 16   # help balloons: sized for comfortable reading
@@ -745,15 +763,15 @@ class SweepDesignApp:
                                                      sticky="ew", pady=8); row += 1
         ttk.Label(p, text="Export", font=("", 10, "bold")).grid(
             row=row, column=0, columnspan=2, sticky="w"); row += 1
-        self.export_fmt = tk.StringVar(value="SVG")
+        self.export_fmt = tk.StringVar(value=EXPORT_FORMATS[0][0].upper())
         fmt_row = ttk.Frame(p); fmt_row.grid(row=row, column=0, columnspan=2, sticky="w"); row += 1
-        r_svg = ttk.Radiobutton(fmt_row, text="SVG", variable=self.export_fmt, value="SVG")
-        r_svg.pack(side=tk.LEFT)
-        r_png = ttk.Radiobutton(fmt_row, text="PNG", variable=self.export_fmt, value="PNG")
-        r_png.pack(side=tk.LEFT)
-        self._tip(r_svg, "Vector format -- scales cleanly for print/slides.")
-        self._tip(r_png, "Raster format -- simplest to paste into documents "
-                          "or email directly.")
+        # Driven by EXPORT_FORMATS so the buttons, the frozen build's bundled
+        # backends and --selftest cannot drift apart. See that constant.
+        for fmt, _backend, tip in EXPORT_FORMATS:
+            rb = ttk.Radiobutton(fmt_row, text=fmt.upper(),
+                                  variable=self.export_fmt, value=fmt.upper())
+            rb.pack(side=tk.LEFT)
+            self._tip(rb, tip)
         b_export = ttk.Button(p, text="Export figure...", command=self._export)
         b_export.grid(row=row, column=0, columnspan=2, sticky="ew", pady=4); row += 1
         self._tip(b_export, "Save the current overlay (all 5 panels, current "
@@ -1693,7 +1711,99 @@ class SweepDesignApp:
             messagebox.showerror("Export failed", str(exc))
 
 
+def _selftest(report_path=None) -> int:
+    """Exercise the parts of a packaged build that only fail at runtime.
+
+    A frozen build can compile, launch and plot perfectly and still be unable
+    to save a file, because matplotlib loads an output backend lazily inside
+    savefig() and a dependency scanner cannot see an import that has not
+    happened yet. v1.0 shipped exactly that way. Nothing short of writing a
+    real file in each format proves the backend is actually there, so that is
+    what this does -- plus a known-answer check on the engine.
+
+    Writes to a temporary directory, opens no window, and returns an exit
+    code. `report_path` is for windowed builds, which have nowhere to print:
+    the same report is written there as well.
+    """
+    import tempfile
+    import traceback
+
+    lines, failed = [], 0
+
+    def check(name, fn):
+        nonlocal failed
+        try:
+            lines.append(f"PASS  {name}: {fn()}")
+        except Exception:
+            failed += 1
+            lines.append(f"FAIL  {name}\n{traceback.format_exc()}")
+
+    lines.append(f"Sweep Design {APP_VERSION} self-test")
+    lines.append(f"frozen={getattr(sys, 'frozen', False)} python={sys.version.split()[0]}")
+    lines.append(f"state file would be: {STATE_FILE}")
+
+    def engine():
+        p = SweepParams()
+        d = generate_sweep(p)
+        sig, fs = d["signal"], d["fs"]
+        freqs, mag = compute_spectrum(sig, fs)
+        lags, ac = compute_autocorrelation(sig, fs)
+        m = compute_sweep_metrics(lags, ac, compute_envelope(ac), freqs, mag)
+        # Known answers for the default 6-96 Hz, 12 s linear sweep. These are
+        # dt-invariant by construction, so a mismatch means real breakage.
+        for key, want, tol in (("ac_peak", 5.844, 0.01), ("pt_db", -10.27, 0.05),
+                               ("sll_db", -13.30, 0.05), ("mlw_s", 0.01376, 1e-4)):
+            got = m[key]
+            if abs(got - want) > tol:
+                raise AssertionError(f"{key}={got!r}, expected {want} +/- {tol}")
+        return f"{len(sig)} samples, " + format_metrics(m, peak_ref=m["ac_peak"])
+
+    check("engine", engine)
+
+    # One figure, saved through every format the Export button offers.
+    fig = Figure(figsize=(4, 3), dpi=BASE_DPI)
+    ax = fig.add_subplot(111)
+    ax.plot([0, 1, 2], [0, 1, 0])
+    ax.set_title("self-test")
+    fig.text(0.5, 0.02, "figure-level artist", ha="center")
+
+    with tempfile.TemporaryDirectory() as tmp:
+        for fmt, backend, _tip in EXPORT_FORMATS:
+            def one(fmt=fmt, backend=backend, tmp=tmp):
+                __import__(backend)          # the import savefig defers
+                out = os.path.join(tmp, f"selftest.{fmt}")
+                fig.savefig(out, format=fmt)
+                size = os.path.getsize(out)
+                if size < 512:
+                    raise AssertionError(f"{out} is only {size} bytes")
+                head = open(out, "rb").read(8)
+                if fmt == "png" and not head.startswith(b"\x89PNG"):
+                    raise AssertionError(f"not a PNG: {head!r}")
+                if fmt == "svg" and not head.lstrip().startswith(b"<"):
+                    raise AssertionError(f"not an SVG: {head!r}")
+                return f"{size} bytes, {backend}"
+            check(f"export {fmt}", one)
+
+    lines.append("FAILED" if failed else "ALL PASSED")
+    report = "\n".join(lines)
+    print(report)
+    if report_path:
+        try:
+            with open(report_path, "w", encoding="utf-8") as fh:
+                fh.write(report + "\n")
+        except OSError as exc:
+            print(f"(could not write {report_path}: {exc})")
+    return 1 if failed else 0
+
+
 def main():
+    # A packaged build has no console, so --selftest takes an optional path to
+    # write its report to. It must run before any window exists.
+    if "--selftest" in sys.argv:
+        i = sys.argv.index("--selftest")
+        rest = sys.argv[i + 1:]
+        sys.exit(_selftest(rest[0] if rest else None))
+
     # Before the first window exists: Windows fixes a process's DPI awareness
     # at the moment it starts drawing, so this cannot be deferred.
     _declare_dpi_aware()

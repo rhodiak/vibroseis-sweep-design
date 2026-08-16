@@ -20,7 +20,16 @@ a = Analysis(
     # sweep_engine is a plain local import and is picked up automatically.
     # matplotlib's TkAgg backend likewise: sweep_design.py imports
     # backend_tkagg by name rather than only through matplotlib.use().
-    hiddenimports=[],
+    #
+    # Output backends are the exception and MUST be listed. matplotlib loads
+    # them lazily, inside savefig(), so no static analysis can see the import
+    # and PyInstaller leaves them out. v1.0 shipped without backend_svg: the
+    # program ran, plotted and exported PNG (the Agg canvas Tk already pulls
+    # in writes that itself) but SVG -- the default -- died with
+    # "No module named 'matplotlib.backends.backend_svg'".
+    # Keep in step with EXPORT_FORMATS in sweep_design.py; --selftest checks
+    # that every listed format can actually write a file.
+    hiddenimports=["matplotlib.backends.backend_svg"],
     hookspath=[],
     runtime_hooks=[],
     # Toolkits and dev tools that numpy/scipy/matplotlib reference but this

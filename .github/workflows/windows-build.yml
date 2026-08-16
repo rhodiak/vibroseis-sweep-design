@@ -74,6 +74,24 @@ jobs:
           Get-ChildItem dist\SweepDesign
           if (-not (Test-Path dist\SweepDesign\SweepDesign.exe)) { exit 1 }
 
+      # Run the FROZEN exe, not the source. This is the only step that can
+      # catch a backend matplotlib imports lazily inside savefig() and
+      # PyInstaller therefore never bundled -- which is how v1.0 shipped
+      # unable to export SVG despite every check above passing. The exe is
+      # windowed and has no stdout, so the report comes back through a file
+      # and the verdict through the exit code.
+      - name: Self-test the frozen build
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath dist\SweepDesign\SweepDesign.exe `
+                 -ArgumentList '--selftest', 'selftest.txt' -Wait -PassThru
+          if (Test-Path selftest.txt) { Get-Content selftest.txt }
+          else { Write-Error "self-test produced no report" }
+          if ($p.ExitCode -ne 0) {
+            Write-Error "self-test failed with exit code $($p.ExitCode)"
+            exit 1
+          }
+
       - uses: actions/upload-artifact@v4
         with:
           name: SweepDesign-windows

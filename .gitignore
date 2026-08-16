@@ -29,3 +29,9 @@ venv/
 *.swp
 .DS_Store
 Thumbs.db
+
+# An unpacked release downloaded here for testing, and its zip. These are
+# build OUTPUT; committing them once put 68 MB and 1221 files into a commit.
+SweepDesign/
+SweepDesign-*.zip
+selftest.txt

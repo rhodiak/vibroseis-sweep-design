@@ -25,6 +25,13 @@ python3 sweep_design.py
 
 Requires `numpy`, `scipy`, `matplotlib` (with a display — Tk backend). No other dependencies.
 
+A prebuilt Windows executable is on the
+[releases page](https://github.com/rhodiak/vibroseis-sweep-design/releases)
+— unpack the folder and run `SweepDesign.exe`, no Python needed. To check a
+build is sound, `SweepDesign.exe --selftest` (or `python3 sweep_design.py
+--selftest`) writes a file in every export format and verifies the engine
+against known values.
+
 ## Workflow
 
 1. On the **Sweep** tab: type, frequency range, length, start phase,
