@@ -383,28 +383,26 @@ before using this for real QC.
 
 Newest first. Every version is on the
 [releases page](https://github.com/rhodiak/vibroseis-sweep-design/releases)
-with a Windows build attached; **use the latest**. Older ones are kept
-rather than deleted, so a link or a citation to a specific build does not
-rot, and so the defects below stay on the record — but the known problems
-are listed here precisely so nobody downloads an old one by accident.
+with a Windows build attached; **use the latest**. Older releases stay up
+rather than being deleted, so a link or a citation to a specific build does
+not rot — and any known problem is listed here, next to the download, so
+nobody picks up a bad one by accident.
 
 | Version | Changes | Known problems |
 |---|---|---|
-| **1.0.4** | About box and `--selftest` now report the detected display scale and the resulting figure dpi. | None reported. |
-| 1.0.3 | Fixes the display-scaling overlap. | None reported. Confirmed on Windows 10 at 150 % scaling, 2560x1440. |
-| 1.0.2 | Window is clamped to the display. The Windows build no longer bundles a redundant CI artifact. | **On a display scaled above 100 %, axis labels overlap the neighbouring panels or are cut off** — bad at 150 %, marginal at 125 %. The display scale was applied twice, once by this program and once by matplotlib's Tk backend. Unaffected at 100 %. Fixed in 1.0.3. |
-| 1.0.1 | Fixes SVG export in the Windows build. Adds `--selftest`, which CI now runs against the frozen executable. | The default window is sized without checking the display, so on a screen scaled above 100 % — or any 1080p screen — it can open larger than the desktop, with the metrics table below the bottom edge. Fixed in 1.0.2. |
-| 1.0 | First public release. | **The Windows build cannot export SVG**, the default format ("No module named `matplotlib.backends.backend_svg`"). PNG works. Also has the 1.0.1 window problem. Fixed in 1.0.1. |
-
-Both defects above were in the *packaged Windows build* only; running from
-source was unaffected in each case. That is the recurring hazard with a
-frozen application, and why `--selftest` exists: it exercises the parts
-that only fail once packaged, and the release cannot publish unless it
-passes.
+| **1.0** | First public release. | None reported. Checked on Windows 10 at 100 % and 150 % display scaling, 2560x1440. |
 
 Versions are `MAJOR.MINOR.PATCH`. `APP_VERSION` in `sweep_design.py` is the
 single source of truth — the release workflow refuses a tag that disagrees
 with it, so the About box and the download name can never drift apart.
+
+Packaging is where this program has historically broken, never the source:
+an output backend that matplotlib imports lazily and a frozen build
+therefore omits, a window sized without asking the display how big it is.
+`--selftest` exists for that reason and CI runs it against the packaged
+executable before any release can publish. It still cannot judge anything
+involving a window, so a look at the real thing on the target machine is
+worth more than a green build.
 
 ## Licence — none, deliberately
 
