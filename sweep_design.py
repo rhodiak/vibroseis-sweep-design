@@ -240,7 +240,7 @@ GLOSSARY_NOTE = (
 GLOSSARY_FS_MAX = 12.0
 GLOSSARY_FS_MIN = 5.5
 
-APP_VERSION = "1.0.1"
+APP_VERSION = "1.0.2"
 
 # Credit / licence line. Put your own name in AUTHOR if you want the credit;
 # the licence wording below is the standard public-domain dedication from
