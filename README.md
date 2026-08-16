@@ -126,13 +126,17 @@ with the picture it annotates.
 
 So doubling the sweep length moves `pk` by about **+6 dB**:
 
-| sweep | `∫s²dt` | `pk` |
-|---|---|---|
-| 6–96 Hz, 32 s, 500/300 ms tapers, 70 % | 7.7181 | +0.0 dB |
-| the same at 16 s | 3.7981 | -6.2 dB |
+| 6–96 Hz, 500/300 ms tapers, 70 % | `∫s²dt` | `pk` | as energy |
+|---|---|---|---|
+| 32 s | 7.7181 | +0.0 dB | +0.00 dB |
+| 16 s | 3.7981 | -6.2 dB | -3.08 dB |
+| 8 s | 1.8381 | -12.5 dB | -6.23 dB |
 
-(The ratio is 0.492 rather than 0.500 because the tapers cost a fixed
-absolute amount of time, so the shorter sweep loses proportionally more.)
+Each halving costs about 6 dB of `pk` and about 3 dB of energy. (The
+energy ratio is 0.492 per step rather than 0.500 because the tapers cost a
+fixed amount of time, so the shorter sweep loses proportionally more — the
+same effect narrows `BW` from 7-95 to 9-94 Hz and takes `P/T` from -10.5
+to -9.3 dB across those three.)
 
 **That +6 dB is correlated signal amplitude, not signal-to-noise.** Random
 noise correlates up as `sqrt(T)`, so doubling the sweep buys roughly **3 dB
