@@ -33,15 +33,33 @@ jobs:
       # published rather than after someone downloads it.
       - name: Check the tag matches APP_VERSION
         if: startsWith(github.ref, 'refs/tags/')
-        shell: pwsh
+        env:
+          # Via the environment, not interpolated into the script: a ref name
+          # is attacker-controllable on a fork and has no business being
+          # pasted into a shell. It also keeps the quoting sane.
+          TAG: ${{ github.ref_name }}
+        # bash, and a quoted heredoc, so nothing here passes through a shell's
+        # quoting rules twice. The pwsh version of this had \" in a regex,
+        # which bash escapes and PowerShell does not, and the pattern reached
+        # Python mangled -- failing a tag that in fact matched.
+        shell: bash
         run: |
-          $tag = "${{ github.ref_name }}" -replace '^v', ''
-          $app = python -c "import re; print(re.search(r'APP_VERSION = \"(.*?)\"', open('sweep_design.py').read()).group(1))"
-          Write-Host "tag=$tag  APP_VERSION=$app"
-          if ($tag -ne $app) {
-            Write-Error "Tag '$tag' does not match APP_VERSION '$app' in sweep_design.py"
-            exit 1
-          }
+          python - <<'PY'
+          import os
+          import sys
+
+          tag = os.environ["TAG"].lstrip("v")
+          app = None
+          for line in open("sweep_design.py", encoding="utf-8"):
+              if line.startswith("APP_VERSION"):
+                  app = line.split("=", 1)[1].strip().strip("\"'")
+                  break
+          print(f"tag={tag}  APP_VERSION={app}")
+          if app is None:
+              sys.exit("APP_VERSION not found in sweep_design.py")
+          if tag != app:
+              sys.exit(f"Tag {tag!r} does not match APP_VERSION {app!r}")
+          PY
 
       # Import the engine and check a known sweep before spending time on a
       # freeze: a broken build is easier to read here than inside PyInstaller.
@@ -64,11 +82,15 @@ jobs:
       # Everything below runs only for a tag push.
       - name: Package the release zip
         if: startsWith(github.ref, 'refs/tags/')
+        env:
+          TAG: ${{ github.ref_name }}
         shell: pwsh
         run: |
-          Compress-Archive -Path dist\SweepDesign\* `
-            -DestinationPath SweepDesign-${{ github.ref_name }}-windows-x64.zip
-          Get-Item SweepDesign-*.zip | Select-Object Name, Length
+          # -Path dist\SweepDesign, not dist\SweepDesign\* : the zip has to
+          # contain the FOLDER. Unpacking the starred form scatters ~40 loose
+          # files into whatever directory the user happened to be in.
+          Compress-Archive -Path dist\SweepDesign -DestinationPath "SweepDesign-$env:TAG-windows-x64.zip"
+          Get-Item "SweepDesign-$env:TAG-windows-x64.zip" | Select-Object Name, Length
 
       - name: Publish the release
         if: startsWith(github.ref, 'refs/tags/')
