@@ -252,6 +252,14 @@ bitmap-stretched and blurry). Elsewhere it stays at 1.0 unless you ask:
 SWEEP_DESIGN_SCALE=1.5 python sweep_design.py
 ```
 
+To see what a given machine actually resolved to, open **About** — the last
+block reports the display size, the detected scale, Tk's scaling, and the
+dpi the figure ended up at. `--selftest` prints the same numbers without
+opening a window. The line to read is the figure dpi: at 150 % it should
+say `150 dpi = 1.5x nominal`. Anything else — `225 dpi = 2.25x nominal`,
+say — means the scale is being applied more than once, which is what went
+wrong in v1.0.2 and is not reliably visible by eye.
+
 One side effect: exported PNGs come out at the scaled dpi, so the same
 figure saved on a 150 % display has 1.5x the pixels for the same physical
 size. SVG is vector and unaffected. See `BUILD.md` for the details.
@@ -351,7 +359,8 @@ are listed here precisely so nobody downloads an old one by accident.
 
 | Version | Changes | Known problems |
 |---|---|---|
-| **1.0.3** | Fixes the display-scaling overlap. | None reported. Confirmed on Windows 10 at 150 % scaling, 2560x1440. |
+| **1.0.4** | About box and `--selftest` now report the detected display scale and the resulting figure dpi. | None reported. |
+| 1.0.3 | Fixes the display-scaling overlap. | None reported. Confirmed on Windows 10 at 150 % scaling, 2560x1440. |
 | 1.0.2 | Window is clamped to the display. The Windows build no longer bundles a redundant CI artifact. | **On a display scaled above 100 %, axis labels overlap the neighbouring panels or are cut off** — bad at 150 %, marginal at 125 %. The display scale was applied twice, once by this program and once by matplotlib's Tk backend. Unaffected at 100 %. Fixed in 1.0.3. |
 | 1.0.1 | Fixes SVG export in the Windows build. Adds `--selftest`, which CI now runs against the frozen executable. | The default window is sized without checking the display, so on a screen scaled above 100 % — or any 1080p screen — it can open larger than the desktop, with the metrics table below the bottom edge. Fixed in 1.0.2. |
 | 1.0 | First public release. | **The Windows build cannot export SVG**, the default format ("No module named `matplotlib.backends.backend_svg`"). PNG works. Also has the 1.0.1 window problem. Fixed in 1.0.1. |

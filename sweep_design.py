@@ -240,7 +240,7 @@ GLOSSARY_NOTE = (
 GLOSSARY_FS_MAX = 12.0
 GLOSSARY_FS_MIN = 5.5
 
-APP_VERSION = "1.0.3"
+APP_VERSION = "1.0.4"
 
 # Credit / licence line. Put your own name in AUTHOR if you want the credit;
 # the licence wording below is the standard public-domain dedication from
@@ -556,6 +556,39 @@ class SweepDesignApp:
         self._build_sweep_tab(tab_sweep)
         self._build_zoom_tab(tab_zoom)
 
+    def _diagnostics(self) -> str:
+        """The measured state of this session, for a bug report.
+
+        Display scaling is the reason this exists. Whether the correction is
+        working is not something you can judge from a screenshot -- v1.0.2
+        applied the scale twice and looked merely 'cramped' -- so the numbers
+        that decide it are put where a user can read them back. `figure`
+        below is the one that matters: it is the dpi matplotlib's Tk backend
+        actually settled on, and every layout budget is derived from it.
+        """
+        try:
+            tk_scaling = float(self.root.tk.call("tk", "scaling"))
+        except Exception:
+            tk_scaling = float("nan")
+        canvas_px = ""
+        try:
+            w = self.fig.get_figwidth() * self.fig.dpi
+            h = self.fig.get_figheight() * self.fig.dpi
+            canvas_px = f", canvas {w:.0f}x{h:.0f} px"
+        except Exception:
+            pass
+        return (
+            f"Sweep Design {APP_VERSION} on {sys.platform}"
+            f"{' (packaged)' if getattr(sys, 'frozen', False) else ' (source)'}\n"
+            f"Display: {self.root.winfo_screenwidth()}x"
+            f"{self.root.winfo_screenheight()} px, "
+            f"window {self.root.winfo_width()}x{self.root.winfo_height()} px\n"
+            f"Scale: detected {self.ui_scale:g}x, Tk {tk_scaling:.3f}, "
+            f"figure {self.fig.dpi:g} dpi = {self.fig.dpi / BASE_DPI:g}x nominal"
+            f"{canvas_px}\n"
+            f"Settings file: {STATE_FILE}"
+        )
+
     def _show_about(self):
         # Tk's message dialog wraps its text at 3 inches, which turns this
         # much About text into a tall narrow column. Widen it to 6i for
@@ -564,7 +597,9 @@ class SweepDesignApp:
         # shape. The option database is global, hence the restore.
         self.root.option_add("*Dialog.msg.wrapLength", ABOUT_WRAP)
         try:
-            messagebox.showinfo("About Sweep Design", ABOUT_TEXT)
+            messagebox.showinfo(
+                "About Sweep Design",
+                f"{ABOUT_TEXT}\n\n----\n{self._diagnostics()}")
         finally:
             self.root.option_add("*Dialog.msg.wrapLength", "3i")
 
@@ -1816,6 +1851,23 @@ def _selftest(report_path=None) -> int:
     lines.append(f"Sweep Design {APP_VERSION} self-test")
     lines.append(f"frozen={getattr(sys, 'frozen', False)} python={sys.version.split()[0]}")
     lines.append(f"state file would be: {STATE_FILE}")
+
+    # Informational, never a pass/fail: reports what the display scaling
+    # would resolve to, so the numbers can be captured from a command line
+    # instead of read off a screenshot. Guarded because a self-test has to
+    # keep working where no display exists at all.
+    try:
+        _declare_dpi_aware()
+        probe = tk.Tk()
+        probe.withdraw()
+        scale = _detect_ui_scale(probe)
+        lines.append(
+            f"display: {probe.winfo_screenwidth()}x{probe.winfo_screenheight()} px, "
+            f"scale {scale:g}x, Tk {float(probe.tk.call('tk', 'scaling')):.3f}, "
+            f"figure would run at {BASE_DPI * scale:g} dpi")
+        probe.destroy()
+    except Exception as exc:
+        lines.append(f"display: not probed ({type(exc).__name__})")
 
     def engine():
         p = SweepParams()
