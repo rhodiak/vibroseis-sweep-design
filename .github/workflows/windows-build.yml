@@ -92,10 +92,18 @@ jobs:
             exit 1
           }
 
+      # Branch builds only. On a tag the release below carries the same bytes,
+      # and release assets do not count against the Actions storage quota
+      # while artifacts do -- uploading both is how a day of releases filled
+      # 500 MB and started failing FinalizeArtifact with a 403. Short
+      # retention for the same reason: these exist to inspect a build that
+      # went wrong, not to archive it.
       - uses: actions/upload-artifact@v4
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
         with:
           name: SweepDesign-windows
           path: dist/SweepDesign/
+          retention-days: 7
 
       # Everything below runs only for a tag push.
       - name: Package the release zip
