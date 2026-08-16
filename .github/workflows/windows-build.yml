@@ -98,8 +98,13 @@ jobs:
       # 500 MB and started failing FinalizeArtifact with a 403. Short
       # retention for the same reason: these exist to inspect a build that
       # went wrong, not to archive it.
+      # Not allowed to fail the build: it is a convenience copy for poking at
+      # a branch build, and a full storage quota says nothing about whether
+      # the code is sound. Every check that does mean something has already
+      # run by this point.
       - uses: actions/upload-artifact@v4
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        continue-on-error: true
         with:
           name: SweepDesign-windows
           path: dist/SweepDesign/
