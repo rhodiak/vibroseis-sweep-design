@@ -592,6 +592,21 @@ def metric_values(m: dict, peak_ref: float = None) -> dict:
     reported instead, and unitless (the one case where a value's unit does
     not match the METRIC_COLUMNS header).
 
+    'pk' is converted with 20*log10, an AMPLITUDE ratio, even though
+    ``ac_peak`` is an energy. That is deliberate and it is not a mixed
+    convention by accident: the number exists to explain the autocorrelation
+    panel drawn directly above the table, where the traces are divided by
+    that same shared reference and read as amplitudes. A half-energy sweep
+    genuinely sits at half height there, and half height is -6 dB. Convert
+    with 10*log10 instead and the column would stop agreeing with the
+    picture it annotates.
+
+    The consequence worth knowing when reading it: doubling sweep length
+    doubles the correlation peak, so 'pk' moves +6 dB -- but that is
+    correlated SIGNAL amplitude, not signal-to-noise. Random noise
+    correlates up as sqrt(T), so the S/N gain from doubling the sweep is
+    about 3 dB, not 6.
+
     Metrics that couldn't be measured are absent from the dict rather than
     present-and-empty, so callers decide how to show a gap.
     """

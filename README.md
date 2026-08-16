@@ -104,7 +104,7 @@ side lobes) shows an en dash rather than a blank.
 
 | Metric | Meaning | Better |
 |---|---|---|
-| `pk`   | Autocorrelation peak, dB relative to the strongest sweep currently on the plot — the energy delivered, ∫s²dt (grows with length, drive level, stack count; *not* with the sample rate). | higher |
+| `pk`   | Autocorrelation peak, dB relative to the strongest sweep currently on the plot. An **amplitude** ratio, so it matches the trace heights in the autocorrelation panel — see the note below. Grows with length, drive level and stack count; *not* with the sample rate. | higher |
 | `SLL`  | First side-lobe level, dB below the main peak. Correlation ringing that can be mistaken for, or mask, a nearby reflection. | lower |
 | `P/T`  | Peak-to-trough: the deepest negative excursion of the wavelet, dB below its peak. The strength of the flanking side lobes an interpreter sees around every reflector. | lower |
 | `MLW`  | Main-lobe width, full width of the correlation envelope at half amplitude (-6 dB), in ms — the wavelet's temporal resolution. | lower |
@@ -112,6 +112,33 @@ side lobes) shows an en dash rather than a blank.
 | `T40dB` | Ringing length: how far from the peak, in ms, the envelope is still above -40 dB. How long correlation noise keeps interfering with later events. | lower |
 | `decay` | Slope of the side-lobe crests against lag, dB per 100 ms. How *fast* the ringing dies away, as distinct from how far it reaches. | more negative |
 | `BW`   | Achieved -6 dB band edges of the amplitude spectrum. Compare against the requested `f1-f2`: tapers, nonlinear dwell shaping and array response all move them. | — |
+
+### Reading `pk`
+
+`pk` is `20*log10` of the correlation peak against the shared reference —
+an amplitude ratio — even though the underlying quantity, `∫s²dt`, is an
+energy. That is deliberate. The column exists to explain the
+autocorrelation panel drawn directly above it, where every trace is
+divided by that same reference and read as an amplitude. A sweep with half
+the energy genuinely sits at half height there, and half height is -6 dB.
+Using `10*log10` would make `pk` a textbook energy dB and stop it agreeing
+with the picture it annotates.
+
+So doubling the sweep length moves `pk` by about **+6 dB**:
+
+| sweep | `∫s²dt` | `pk` |
+|---|---|---|
+| 6–96 Hz, 32 s, 500/300 ms tapers, 70 % | 7.7181 | +0.0 dB |
+| the same at 16 s | 3.7981 | -6.2 dB |
+
+(The ratio is 0.492 rather than 0.500 because the tapers cost a fixed
+absolute amount of time, so the shorter sweep loses proportionally more.)
+
+**That +6 dB is correlated signal amplitude, not signal-to-noise.** Random
+noise correlates up as `sqrt(T)`, so doubling the sweep buys roughly **3 dB
+of S/N**, the familiar Vibroseis rule. Read `pk` as "how tall this wavelet
+stands on the plot", and halve the dB before treating it as a noise
+argument.
 
 `SLL` and `P/T` are both "how big are the side lobes", and they rarely
 agree — they look in different places. `SLL` measures the **envelope**,
