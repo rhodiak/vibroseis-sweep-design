@@ -1,0 +1,239 @@
+# Building a Windows .exe
+
+Sweep Design is a plain Python + tkinter + matplotlib program, so freezing
+it is straightforward. The one thing that is not straightforward is *where*
+you run the build.
+
+## You cannot build the .exe on Fedora
+
+PyInstaller (and cx_Freeze, and Nuitka) bundle **the interpreter and the
+compiled libraries of the machine they run on**. There is no cross-compile
+mode. Running PyInstaller on Linux gives you a Linux binary no matter what
+flags you pass. You need Windows — real, virtual, or emulated. Three ways,
+best first.
+
+---
+
+## Option A — GitHub Actions (recommended)
+
+No Windows machine required, reproducible, and you get a downloadable zip
+every time you push. This project is public domain (The Unlicense), so
+there is nothing to keep private.
+
+The project is not currently a git repository. Set one up:
+
+```bash
+cd path/to/sweep_design
+git init
+printf '__pycache__/\n*.pyc\nbuild/\ndist/\nsweep_design_state.json\n' > .gitignore
+git add -A && git commit -m "Sweep Design v1.0"
+gh repo create sweep-design --public --source=. --push
+```
+
+Then create `.github/workflows/windows-build.yml`:
+
+```yaml
+name: Windows build
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install numpy scipy matplotlib pyinstaller
+
+      - name: Build
+        run: pyinstaller --noconfirm --clean sweep_design.spec
+
+      - name: Smoke-test the build
+        run: |
+          dir dist\SweepDesign
+          if (-not (Test-Path dist\SweepDesign\SweepDesign.exe)) { exit 1 }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SweepDesign-windows
+          path: dist/SweepDesign/
+```
+
+Push, wait ~4 minutes, download the artifact from the Actions tab. Note
+that `windows-latest` runners are x86-64, so the result will not run on ARM
+Windows machines.
+
+To cut a versioned release instead of a build artifact, add a tag trigger
+and a `softprops/action-gh-release` step — but the artifact is enough to
+start with.
+
+---
+
+## Option B — a Windows VM on your Fedora box
+
+More setup up front, much faster to iterate afterwards, and you can
+actually *use* the program while testing it, which Option A cannot do.
+
+```bash
+sudo dnf install virt-manager qemu-kvm libvirt
+sudo systemctl enable --now libvirtd
+```
+
+Grab a Windows 11 Enterprise evaluation ISO from Microsoft (90 days, free,
+no key) or use a licensed image. Give the VM 4 GB RAM and 40 GB disk.
+Inside Windows:
+
+1. Install Python 3.12 from python.org — **tick "Add python.exe to PATH"**.
+   Do not use the Microsoft Store build; its install layout confuses
+   PyInstaller.
+2. Share the project folder into the VM (virt-manager → Add Hardware →
+   Filesystem, or just use a shared folder / scp).
+3. Then follow **The build itself** below.
+
+---
+
+## Option C — Wine (last resort)
+
+Works, but it is the flakiest of the three and hard to debug when it isn't
+working. Only worth it if you refuse a VM and won't use CI.
+
+```bash
+sudo dnf install wine winetricks
+export WINEPREFIX=~/.wine-sweepdesign
+export WINEARCH=win64
+wineboot -i
+# Install a real Windows Python into the prefix:
+wget https://www.python.org/ftp/python/3.12.8/python-3.12.8-amd64.exe
+wine python-3.12.8-amd64.exe /quiet InstallAllUsers=1 PrependPath=1 Include_tcltk=1
+wine python -m pip install numpy scipy matplotlib pyinstaller
+wine python -m PyInstaller --noconfirm --clean sweep_design.spec
+```
+
+The `Include_tcltk=1` is not optional — the default silent install can skip
+tkinter, and you will get an opaque failure at freeze time rather than a
+clear one. Always test the resulting .exe on real Windows; a Wine-built
+binary that runs under Wine can still fail on Windows.
+
+---
+
+## The build itself
+
+Same on any of the three hosts, from the project directory:
+
+```
+pip install numpy scipy matplotlib pyinstaller
+pyinstaller --noconfirm --clean sweep_design.spec
+```
+
+Output lands in `dist\SweepDesign\`. Zip that whole folder — the .exe alone
+will not run.
+
+### One folder or one file?
+
+`sweep_design.spec` builds **one folder** by default. For a single .exe:
+
+```
+set SD_ONEFILE=1
+pyinstaller --noconfirm --clean sweep_design.spec
+```
+
+| | one folder | one file |
+|---|---|---|
+| what you ship | a zip of ~40 files | one `SweepDesign.exe` |
+| size | ~200 MB unpacked | ~90 MB |
+| startup | under a second | 5–15 s, **every launch** |
+| antivirus | occasional complaint | frequent complaint |
+
+One file re-extracts the entire scipy/matplotlib payload to a temp
+directory on every single launch. For a program someone opens repeatedly to
+compare sweeps, that wait is the wrong trade. Ship the folder unless you
+specifically need a single file to email.
+
+---
+
+## Windows-specific things that will bite you
+
+**Settings file location.** `sweep_design.py` resolves this at startup
+(`_app_dir()`): running from source it sits next to the script, frozen it
+sits next to the .exe. This matters — under a one-file build the naive
+`__file__` path points into PyInstaller's temp extraction directory, which
+Windows deletes on exit, so every setting would silently vanish between
+runs. If you unpack into `C:\Program Files\`, where standard users cannot
+write, it falls back to `%APPDATA%\SweepDesign\`. The About box always
+shows the resolved path, so you can check where it actually went.
+
+**HiDPI displays.** Handled, but worth understanding if you ever touch the
+layout code. On a display scaled to 125 % or 150 % — most Windows laptops
+— an ordinary process is handed a fictitious smaller screen and the
+compositor stretches its output, so plot lines and axis text come out
+blurry. `_declare_dpi_aware()` turns that off at startup, before the first
+window exists, because Windows fixes a process's awareness at the moment
+it starts drawing.
+
+Killing the blur alone would leave everything physically too small, so
+`_detect_ui_scale()` reads the scale factor and one multiplier flows
+through the whole program: the figure dpi becomes `BASE_DPI * ui_scale`,
+which is what makes a 10 pt label occupy `10 * dpi / 72` real pixels, and
+every hard-coded pixel number goes through `SweepDesignApp.px()` so the
+room reserved for text grows by exactly the same factor. That is the
+invariant to preserve — **a new pixel constant must go through `px()`**, or
+it will be right at 100 % and wrong everywhere else. Point sizes need no
+help; they ride on the dpi already.
+
+System DPI awareness is claimed, not per-monitor: Tk 8.6 does not rescale
+itself when a window is dragged to a monitor with a different scale, so
+claiming per-monitor would promise what the toolkit cannot deliver. The
+matplotlib toolbar looks after its own icons once Tk scaling is right.
+
+Two consequences worth knowing. Exported PNGs come out at the display's
+dpi, so the same figure saved on a 150 % machine is 1.5x the pixels — same
+physical size, more detail. SVG exports are vector and unaffected.
+
+Scaling is auto-detected **only on Windows**, deliberately: an X11 server
+can report any DPI it likes and honouring it would resize the program on
+machines where nothing was wrong. Override anywhere with the environment
+variable, which is also how to test the scaled layout from Linux:
+
+```bash
+SWEEP_DESIGN_SCALE=1.5 python sweep_design.py   # force 150%
+SWEEP_DESIGN_SCALE=1   SweepDesign.exe          # opt out on Windows
+```
+
+**Antivirus false positives.** Unsigned PyInstaller executables get flagged
+by SmartScreen and by some scanners, purely for being unsigned and
+self-extracting. Nothing you can do short of buying a code-signing
+certificate. The spec deliberately does not use UPX compression, which
+makes it markedly worse.
+
+**Console window.** The spec sets `console=False`, so no black window
+appears behind the GUI. The cost is that a crash before the Tk window opens
+leaves no visible message. If the exe dies silently, rebuild with
+`console=True` in `sweep_design.spec` and run it from `cmd` to see the
+traceback.
+
+---
+
+## Testing the result
+
+Beyond "it opens":
+
+1. Add three sweeps with different bandwidths — the metrics table should
+   show 8 columns and the grid should be centred.
+2. Export both a PNG and an SVG. The footer, the metrics key and the table
+   must all appear in the exported file, not just on screen.
+3. Resize the window from small to maximised. Text must not collide or
+   overflow at any size.
+4. Close the program, reopen it, and confirm your sweep parameters came
+   back. This is the check that catches a broken state path.
+5. Test on a machine that has never had Python installed. A missing
+   runtime DLL will only show up there.

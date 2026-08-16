@@ -1,0 +1,31 @@
+# Saved sweep parameters and zoom settings. Per-user, rewritten on every
+# exit -- not something to share or to keep in history.
+sweep_design_state.json
+
+# Local tool configuration; contains absolute paths from the machine it was
+# written on.
+.claude/
+
+# Ad-hoc exports from the Export button. docs/example.png is generated
+# deliberately and IS tracked; these are whatever was on screen at the time.
+sweep_comparison_*.svg
+sweep_comparison_*.png
+
+# PyInstaller output (see BUILD.md)
+build/
+dist/
+*.manifest
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Editors / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db

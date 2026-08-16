@@ -1,0 +1,40 @@
+name: Windows build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller
+
+      # Import the engine and check a known sweep before spending time on a
+      # freeze: a broken build is easier to read here than inside PyInstaller.
+      - name: Check the engine
+        run: python -c "import sweep_engine as se; d = se.generate_sweep(se.SweepParams()); f, m = se.compute_spectrum(d['signal'], d['fs']); l, a = se.compute_autocorrelation(d['signal'], d['fs']); met = se.compute_sweep_metrics(l, a, se.compute_envelope(a), f, m); print(se.format_metrics(met, peak_ref=met['ac_peak'])); assert abs(met['pt_db'] + 10.27) < 0.1, met['pt_db']"
+
+      - name: Build
+        run: pyinstaller --noconfirm --clean sweep_design.spec
+
+      - name: Check the build produced an executable
+        run: |
+          Get-ChildItem dist\SweepDesign
+          if (-not (Test-Path dist\SweepDesign\SweepDesign.exe)) { exit 1 }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SweepDesign-windows
+          path: dist/SweepDesign/
