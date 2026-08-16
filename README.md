@@ -27,10 +27,11 @@ Requires `numpy`, `scipy`, `matplotlib` (with a display — Tk backend). No othe
 
 A prebuilt Windows executable is on the
 [releases page](https://github.com/rhodiak/vibroseis-sweep-design/releases)
-— unpack the folder and run `SweepDesign.exe`, no Python needed. To check a
-build is sound, `SweepDesign.exe --selftest` (or `python3 sweep_design.py
---selftest`) writes a file in every export format and verifies the engine
-against known values.
+— unpack the folder and run `SweepDesign.exe`, no Python needed. Take the
+newest; see [Version history](#version-history) for what was wrong with
+the older ones. To check a build is sound, `SweepDesign.exe --selftest`
+(or `python3 sweep_design.py --selftest`) writes a file in every export
+format and verifies the engine against known values.
 
 ## Workflow
 
@@ -328,6 +329,31 @@ These are reasonable working definitions, not vendor-specific formulas —
 worth checking against your acquisition system's actual sweep generator
 docs (Sercel/INOVA/etc.) if you need to match a specific unit's output
 before using this for real QC.
+
+## Version history
+
+Newest first. Every version is on the
+[releases page](https://github.com/rhodiak/vibroseis-sweep-design/releases)
+with a Windows build attached; **use the latest**. Older ones are kept
+rather than deleted, so a link or a citation to a specific build does not
+rot, and so the defects below stay on the record — but the known problems
+are listed here precisely so nobody downloads an old one by accident.
+
+| Version | Changes | Known problems |
+|---|---|---|
+| **1.0.2** | Window is clamped to the display. The Windows build no longer bundles a redundant CI artifact. | None reported. The display-scaling path (Windows at 125 % / 150 %) has not yet been confirmed on real hardware. |
+| 1.0.1 | Fixes SVG export in the Windows build. Adds `--selftest`, which CI now runs against the frozen executable. | The default window is sized without checking the display, so on a screen scaled above 100 % — or any 1080p screen — it can open larger than the desktop, with the metrics table below the bottom edge. Fixed in 1.0.2. |
+| 1.0 | First public release. | **The Windows build cannot export SVG**, the default format ("No module named `matplotlib.backends.backend_svg`"). PNG works. Also has the 1.0.1 window problem. Fixed in 1.0.1. |
+
+Both defects above were in the *packaged Windows build* only; running from
+source was unaffected in each case. That is the recurring hazard with a
+frozen application, and why `--selftest` exists: it exercises the parts
+that only fail once packaged, and the release cannot publish unless it
+passes.
+
+Versions are `MAJOR.MINOR.PATCH`. `APP_VERSION` in `sweep_design.py` is the
+single source of truth — the release workflow refuses a tag that disagrees
+with it, so the About box and the download name can never drift apart.
 
 ## Licence — none, deliberately
 

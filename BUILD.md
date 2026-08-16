@@ -82,11 +82,18 @@ release whenever a `v*` tag is pushed — bump `APP_VERSION` in
 with it:
 
 ```bash
-# edit APP_VERSION in sweep_design.py, then:
+# edit APP_VERSION in sweep_design.py, add a row to the version history
+# table in README.md, then:
 git commit -am "Release v1.1"
 git tag -a v1.1 -m "Sweep Design v1.1"
 git push && git push --tags
 ```
+
+Add the README row *before* tagging, not after: the release is built from
+the tagged commit, so a row added later is missing from the very build it
+describes. Record the known problems of the version being superseded at
+the same time — that table is the durable record, and it is the reason
+old releases can be left in place instead of deleted.
 
 That builds as usual, zips `dist/SweepDesign/` as
 `SweepDesign-v1.1-windows-x64.zip`, and publishes a release with the zip
