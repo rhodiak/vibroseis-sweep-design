@@ -189,7 +189,14 @@ PANEL_TITLES = {
 # them twice on one figure buys nothing but width. Colour is the link between
 # the two, exactly as it is between the legend and the curves.
 TABLE_FS = 9.0            # nominal point size; only ever shrinks from here,
-TABLE_FS_MIN = 6.0        # and never below this, on a very narrow canvas
+TABLE_FS_MIN = 5.0        # and never below this, on a very narrow canvas.
+                          # Small, deliberately: this is the last step before
+                          # the table runs off the canvas edge, and a cramped
+                          # number still reads where a clipped one does not.
+                          # It only bites below roughly 800 px of nominal
+                          # canvas width -- eight sweeps on a 1080p screen
+                          # scaled to 200%, say, where the effective desktop
+                          # is 960x540 and everything is cramped anyway.
 TABLE_ROW_MULT = 1.6      # row pitch as a multiple of the point size: tight,
                           # but leaving the gridded cells room to breathe
 TABLE_PAD_MULT = 0.85     # cell padding either side of the text, in point-size
@@ -392,7 +399,26 @@ class SweepDesignApp:
         # needs a strip of its own, and it is meant to come out of ADDED
         # height rather than out of the panels. Width is unchanged -- the
         # table only ever grows downward.
-        self.root.geometry(f"{self.px(1550):.0f}x{self.px(1060):.0f}")
+        #
+        # Clamped to the screen, because the nominal size does not fit
+        # everywhere: 1060 px of window plus a taskbar already overflows a
+        # 1080p display at 100%, and the display scale multiplies it -- at
+        # 125% on a 1080p laptop, a common Windows default, the raw request
+        # is 1937x1325. An oversized window opens with its lower edge, and
+        # so the whole metrics table, off the bottom of the screen. Every
+        # margin is solved against the canvas actually granted (the layout
+        # is exercised down to 800x620), so shrinking here costs nothing but
+        # plot area.
+        want_w, want_h = self.px(1550), self.px(1060)
+        screen_w, screen_h = root.winfo_screenwidth(), root.winfo_screenheight()
+        avail_w = screen_w - self.px(40)
+        avail_h = screen_h - self.px(90)                    # taskbar + title bar
+        # The floor keeps a bad screen reading from opening a useless sliver,
+        # but it is capped by the screen in turn: a minimum must never win
+        # against the physical display, or the clamp above is undone.
+        win_w = min(int(max(self.px(700), min(want_w, avail_w))), screen_w)
+        win_h = min(int(max(self.px(560), min(want_h, avail_h))), screen_h)
+        self.root.geometry(f"{win_w}x{win_h}")
 
         self.results = []      # list of dicts: raw generation + analysis
         self.next_color_idx = 0
