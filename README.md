@@ -239,7 +239,10 @@ therefore grow together, and the panel fractions come out identical at
 Doing it the other way round — detecting the scale independently and
 multiplying the dpi — is what broke v1.0.2: the factor was applied twice,
 once by the program and once by the backend, so a 150 % display rendered at
-225 dpi and axis labels overlapped the neighbouring panels.
+225 dpi and axis labels overlapped the neighbouring panels. Checked on
+Windows 10 at 150 % on a 2560x1440 display, which is the only way this is
+really testable: on X11 the backend's ratio is `winfo_fpixels('1i')/96`,
+normally exactly 1.0, so the two scalings never meet there.
 
 The factor is detected automatically on Windows only (where the process
 also declares itself DPI-aware, without which the whole window would be
@@ -348,7 +351,7 @@ are listed here precisely so nobody downloads an old one by accident.
 
 | Version | Changes | Known problems |
 |---|---|---|
-| **1.0.3** | Fixes the display-scaling overlap. | None reported. |
+| **1.0.3** | Fixes the display-scaling overlap. | None reported. Confirmed on Windows 10 at 150 % scaling, 2560x1440. |
 | 1.0.2 | Window is clamped to the display. The Windows build no longer bundles a redundant CI artifact. | **On a display scaled above 100 %, axis labels overlap the neighbouring panels or are cut off** — bad at 150 %, marginal at 125 %. The display scale was applied twice, once by this program and once by matplotlib's Tk backend. Unaffected at 100 %. Fixed in 1.0.3. |
 | 1.0.1 | Fixes SVG export in the Windows build. Adds `--selftest`, which CI now runs against the frozen executable. | The default window is sized without checking the display, so on a screen scaled above 100 % — or any 1080p screen — it can open larger than the desktop, with the metrics table below the bottom edge. Fixed in 1.0.2. |
 | 1.0 | First public release. | **The Windows build cannot export SVG**, the default format ("No module named `matplotlib.backends.backend_svg`"). PNG works. Also has the 1.0.1 window problem. Fixed in 1.0.1. |
