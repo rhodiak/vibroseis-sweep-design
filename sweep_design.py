@@ -240,7 +240,7 @@ GLOSSARY_NOTE = (
 GLOSSARY_FS_MAX = 12.0
 GLOSSARY_FS_MIN = 5.5
 
-APP_VERSION = "1.0.2"
+APP_VERSION = "1.0.3"
 
 # Credit / licence line. Put your own name in AUTHOR if you want the credit;
 # the licence wording below is the standard public-domain dedication from
@@ -438,15 +438,44 @@ class SweepDesignApp:
         self._load_state(notify=False)   # silently restore last session, if any
 
     def px(self, n: float) -> float:
-        """A length tuned at 100 dpi, in the pixels this display actually has.
+        """A TK length tuned at 100 dpi, in this display's real pixels.
 
-        Every hard-coded pixel number in this program goes through here. They
-        were all measured against text drawn at BASE_DPI, and the figure dpi
-        is raised by the same factor (see _build_plot_panel), so text and the
-        room reserved for it grow together and the layout arithmetic keeps
-        working unchanged at any scale.
+        For widget geometry only -- the window size, a wraplength. Anything
+        drawn on the figure must use fpx() instead, which follows the figure's
+        own dpi rather than this independently detected factor.
         """
         return n * self.ui_scale
+
+    def fpx(self, n: float) -> float:
+        """A FIGURE length tuned at BASE_DPI, in the figure's device pixels.
+
+        Every hard-coded pixel budget for text furniture goes through here.
+        Derived from the live figure dpi, not from ui_scale, and that is the
+        whole point: matplotlib's Tk backend sets the dpi itself from the
+        display scale, so reading it back is self-consistent by construction.
+        Scaling by a separately detected factor instead is how v1.0.2 came to
+        apply the display scale twice. Text is sized in points and so already
+        follows the dpi; this keeps the room reserved for it in step.
+        """
+        return n * self.fig.dpi / BASE_DPI
+
+    def _scale_margins(self):
+        """Refresh the pixel budgets against the figure's current dpi.
+
+        Called on every layout pass, not once at construction: the Tk backend
+        sets the figure dpi from the display scale when the canvas is mapped,
+        which happens after these are first needed, and can change it again
+        later. Cheap enough to redo, and wrong if it is not."""
+        n = self._nominal_margins
+        self._m_left_px = self.fpx(n["left"])
+        self._m_right_px = self.fpx(n["right"])
+        self._m_bottom_px = self.fpx(n["bottom"])
+        self._m_footer_px = self.fpx(n["footer"])
+        self._m_title_px = self.fpx(n["title"])
+        self._gap_w_px = self.fpx(n["gap_w"])
+        self._gap_h_px = self.fpx(n["gap_h"])
+        self._legend_row_px = self.fpx(n["legend_row"])
+        self._legend_pad_px = self.fpx(n["legend_pad"])
 
     # ------------------------------------------------------------------ UI
     def _build_layout(self):
@@ -959,13 +988,14 @@ class SweepDesignApp:
 
     # --------------------------------------------------------------- plots
     def _build_plot_panel(self):
-        # dpi carries the display scale, figsize does not: a point is 1/72
-        # inch, so raising dpi is what makes 10 pt text occupy 10*dpi/72 real
-        # pixels instead of being shrunk to two thirds of its intended size on
-        # a 150% display. The inch dimensions stay put, so the figure is the
-        # same physical size and every pixel budget below just needs the same
-        # multiplier -- which is exactly what self.px() applies.
-        self.fig = Figure(figsize=(11, 8.9), dpi=BASE_DPI * self.ui_scale)
+        # BASE_DPI flat, NOT multiplied by the display scale: matplotlib's Tk
+        # backend already does that. On Windows it reads the scale out of Tk
+        # (_update_device_pixel_ratio) and sets figure.dpi = ratio *
+        # figure._original_dpi. Handing it a pre-scaled dpi applies the factor
+        # twice -- 225 dpi on a 150% display -- which is what made axis labels
+        # overlap the neighbouring panels in v1.0.2. Set the nominal dpi and
+        # let the backend scale it; read the result back through fpx().
+        self.fig = Figure(figsize=(11, 8.9), dpi=BASE_DPI)
         # Six equal panels on a 2x3 grid (a 2x6 gridspec with every panel
         # spanning two columns, so the pixel-gap arithmetic in _apply_layout
         # stays uniform). Row 0: Signal / Freq-vs-time / metrics key. Row 1:
@@ -1018,24 +1048,31 @@ class SweepDesignApp:
         # scales proportionally with the GUI while the labels always get
         # exactly the room they need. See _apply_layout / _on_canvas_configure.
         #
-        # All of them go through self.px(): the numbers are the room the text
-        # needs at 100 dpi, and the figure is at BASE_DPI * ui_scale, so on a
-        # scaled display the text and its budget grow by the same factor.
-        self._m_left_px = self.px(78)   # y label + y ticks of the leftmost panel
-        self._m_right_px = self.px(22)  # overhang of the rightmost x tick label
-        self._m_bottom_px = self.px(52)  # x ticks + x label of the bottom row
-        self._m_footer_px = self.px(22)  # credit / licence footer below panels
-        self._m_title_px = self.px(30)   # panel title above the top row
-        self._gap_w_px = self.px(78)     # between columns: inner y label + ticks
-        self._gap_h_px = self.px(78)     # between rows: top x label + title
+        # Nominal: the room the text needs at BASE_DPI. Converted to the
+        # figure's real pixels by _scale_margins(), which runs on every layout
+        # pass rather than once here -- the Tk backend changes the figure dpi
+        # when the canvas is first mapped, and again if the window moves to a
+        # differently scaled monitor, so a value computed at construction is
+        # stale by the time it is used.
+        self._nominal_margins = {
+            "left": 78,    # y label + y tick labels of the leftmost panel
+            "right": 22,   # overhang of the rightmost x tick label
+            "bottom": 52,  # x tick labels + x label of the bottom row
+            "footer": 22,  # credit / licence footer below the panels
+            "title": 30,   # panel title above the top row
+            "gap_w": 78,   # between columns: inner y label + tick labels
+            "gap_h": 78,   # between rows: top x label + bottom title
+            "legend_row": 31,   # per legend row at _legend_fs
+            "legend_pad": 16,   # legend frame padding / breathing room
+        }
+        self._scale_margins()
         self._legend_fs = 12      # legend text: the sweep parameter strings,
                                    # deliberately larger than the tick labels
                                    # since they're the read-me-first content
         self._legend_fs_used = 12  # actual size in use; drops below
                                     # _legend_fs only on a very narrow canvas
-        self._legend_row_px = self.px(31)  # per legend row at _legend_fs
-        self._legend_pad_px = self.px(16)  # legend frame padding / breathing
-        self._legend_rows = 0
+        self._legend_rows = 0   # _legend_row_px / _legend_pad_px: see
+                                 # _nominal_margins and _scale_margins
         self._resize_after_id = None
 
         # Metrics table artists (see _build_table): header cells, one entry
@@ -1057,6 +1094,17 @@ class SweepDesignApp:
         self._build_glossary()
 
         self.canvas = FigureCanvasTkAgg(self.fig, master=self.right)
+        # With SWEEP_DESIGN_SCALE set, drive the backend's own scaling hook
+        # rather than only the Tk side. Off Windows the backend derives its
+        # ratio from the X server's reported DPI, which is 1.0 on an ordinary
+        # desktop, so without this there is no way to exercise the scaled
+        # figure path from Linux at all -- and not being able to is precisely
+        # how the double-scaling bug reached a release.
+        if os.environ.get(UI_SCALE_ENV, "").strip() and self.ui_scale != 1.0:
+            try:
+                self.canvas._set_device_pixel_ratio(self.ui_scale)
+            except Exception:
+                pass
         self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
         # add="+" is essential here: FigureCanvasTkAgg already binds its
         # OWN <Configure> handler (self.resize) in its __init__ to keep the
@@ -1290,9 +1338,9 @@ class SweepDesignApp:
         n_rows = len(self._table_body)
         # Point sizes ride on pt_px and need no help; the three constants
         # measured in pixels do. See SweepDesignApp.px().
-        swatch_px = self.px(TABLE_SWATCH_PX)
-        pad_top_px = self.px(TABLE_PAD_TOP_PX)
-        pad_bot_px = self.px(TABLE_PAD_BOT_PX)
+        swatch_px = self.fpx(TABLE_SWATCH_PX)
+        pad_top_px = self.fpx(TABLE_PAD_TOP_PX)
+        pad_bot_px = self.fpx(TABLE_PAD_BOT_PX)
         try:
             renderer = self.fig.canvas.get_renderer()
         except Exception:
@@ -1495,6 +1543,7 @@ class SweepDesignApp:
         canvas's current pixel size -- see _build_plot_panel. Everything left
         over is plot area, so the content scales with the window while the
         labels keep a constant size and a constant amount of room."""
+        self._scale_margins()      # the dpi may have moved since the last pass
         w_px = max(self.fig.get_figwidth() * self.fig.dpi, 1.0)
         h_px = max(self.fig.get_figheight() * self.fig.dpi, 1.0)
 

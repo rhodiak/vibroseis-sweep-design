@@ -212,15 +212,29 @@ blurry. `_declare_dpi_aware()` turns that off at startup, before the first
 window exists, because Windows fixes a process's awareness at the moment
 it starts drawing.
 
-Killing the blur alone would leave everything physically too small, so
-`_detect_ui_scale()` reads the scale factor and one multiplier flows
-through the whole program: the figure dpi becomes `BASE_DPI * ui_scale`,
-which is what makes a 10 pt label occupy `10 * dpi / 72` real pixels, and
-every hard-coded pixel number goes through `SweepDesignApp.px()` so the
-room reserved for text grows by exactly the same factor. That is the
-invariant to preserve — **a new pixel constant must go through `px()`**, or
-it will be right at 100 % and wrong everywhere else. Point sizes need no
-help; they ride on the dpi already.
+Killing the blur alone would leave everything physically too small. The
+figure dpi has to rise with the display scale so a 10 pt label occupies
+`10 * dpi / 72` real pixels — but **matplotlib's Tk backend already does
+that**, in `_update_device_pixel_ratio()`, which reads the scale out of Tk
+and sets `figure.dpi = ratio * figure._original_dpi`. So the figure is
+created at a flat `BASE_DPI` and the backend scales it.
+
+Everything drawn on the figure then reads the scale back out of the figure
+through `SweepDesignApp.fpx()`, which is `n * fig.dpi / BASE_DPI`, and the
+margin budgets are refreshed by `_scale_margins()` on every layout pass —
+the dpi changes when the canvas is first mapped, so a value computed at
+construction is already stale.
+
+That is the invariant: **a new figure pixel constant must go through
+`fpx()`**, never through a separately detected scale factor. v1.0.2 got
+this wrong. It multiplied the dpi by its own detected factor *as well*,
+so a 150 % display ran at 225 dpi — text 1.5x larger than the margins
+reserved for it, and axis labels overlapping the neighbouring panels.
+Deriving from `fig.dpi` is self-consistent by construction and cannot
+double-count. Point sizes need no help; they ride on the dpi already.
+
+`px()` still exists and is for **Tk widget geometry only** — the window
+size, a wraplength — where the figure's dpi is not the relevant quantity.
 
 System DPI awareness is claimed, not per-monitor: Tk 8.6 does not rescale
 itself when a window is dragged to a monitor with a different scale, so
@@ -234,7 +248,11 @@ physical size, more detail. SVG exports are vector and unaffected.
 Scaling is auto-detected **only on Windows**, deliberately: an X11 server
 can report any DPI it likes and honouring it would resize the program on
 machines where nothing was wrong. Override anywhere with the environment
-variable, which is also how to test the scaled layout from Linux:
+variable, which also forces the backend's own scaling hook so the scaled
+*figure* path can be exercised from Linux — matplotlib derives its ratio
+from the X server's reported DPI, which is 1.0 on an ordinary desktop, and
+not being able to test that path is exactly how the v1.0.2 double-scaling
+bug reached a release:
 
 ```bash
 SWEEP_DESIGN_SCALE=1.5 python sweep_design.py   # force 150%
