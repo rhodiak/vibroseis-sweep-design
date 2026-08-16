@@ -27,7 +27,7 @@ cd path/to/sweep_design
 git init
 printf '__pycache__/\n*.pyc\nbuild/\ndist/\nsweep_design_state.json\n' > .gitignore
 git add -A && git commit -m "Sweep Design v1.0"
-gh repo create sweep-design --public --source=. --push
+gh repo create vibroseis-sweep-design --public --source=. --push
 ```
 
 Then create `.github/workflows/windows-build.yml`:
@@ -73,9 +73,34 @@ Push, wait ~4 minutes, download the artifact from the Actions tab. Note
 that `windows-latest` runners are x86-64, so the result will not run on ARM
 Windows machines.
 
-To cut a versioned release instead of a build artifact, add a tag trigger
-and a `softprops/action-gh-release` step — but the artifact is enough to
-start with.
+### Cutting a release
+
+Artifacts expire after 90 days and need a GitHub login to download.
+Releases do neither, so that is what to hand people. The workflow builds a
+release whenever a `v*` tag is pushed — bump `APP_VERSION` in
+`sweep_design.py` first, because the workflow refuses a tag that disagrees
+with it:
+
+```bash
+# edit APP_VERSION in sweep_design.py, then:
+git commit -am "Release v1.1"
+git tag -a v1.1 -m "Sweep Design v1.1"
+git push && git push --tags
+```
+
+That builds as usual, zips `dist/SweepDesign/` as
+`SweepDesign-v1.1-windows-x64.zip`, and publishes a release with the zip
+attached and notes generated from the commits since the last tag.
+
+The version check runs *before* the build, so a mismatched tag costs
+seconds rather than four minutes. If you tag by mistake, delete it with
+`git push --delete origin v1.1` and delete the release on the repo page —
+a published release is visible immediately, so check the tag before
+pushing it rather than after.
+
+The workflow declares `permissions: contents: write` for this. Without it
+a repository whose default workflow permission is read-only would build
+fine and then fail on the very last step.
 
 ---
 

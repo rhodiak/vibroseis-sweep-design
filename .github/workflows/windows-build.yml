@@ -3,8 +3,15 @@ name: Windows build
 on:
   push:
     branches: [main]
+    tags: ["v*"]
   pull_request:
   workflow_dispatch:
+
+# Only the release step needs to write, and only on a tag. Declared here
+# rather than relied on: a repository whose default workflow permission is
+# read-only would otherwise fail at the last step, after the build.
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -20,6 +27,21 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt pyinstaller
+
+      # The tag is what users see in the download name and the About box has
+      # to agree with it, so a mismatch is caught before anything is built or
+      # published rather than after someone downloads it.
+      - name: Check the tag matches APP_VERSION
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}" -replace '^v', ''
+          $app = python -c "import re; print(re.search(r'APP_VERSION = \"(.*?)\"', open('sweep_design.py').read()).group(1))"
+          Write-Host "tag=$tag  APP_VERSION=$app"
+          if ($tag -ne $app) {
+            Write-Error "Tag '$tag' does not match APP_VERSION '$app' in sweep_design.py"
+            exit 1
+          }
 
       # Import the engine and check a known sweep before spending time on a
       # freeze: a broken build is easier to read here than inside PyInstaller.
@@ -38,3 +60,41 @@ jobs:
         with:
           name: SweepDesign-windows
           path: dist/SweepDesign/
+
+      # Everything below runs only for a tag push.
+      - name: Package the release zip
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        run: |
+          Compress-Archive -Path dist\SweepDesign\* `
+            -DestinationPath SweepDesign-${{ github.ref_name }}-windows-x64.zip
+          Get-Item SweepDesign-*.zip | Select-Object Name, Length
+
+      - name: Publish the release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: SweepDesign-${{ github.ref_name }}-windows-x64.zip
+          # A missing zip must fail loudly rather than publish an empty
+          # release that looks fine until someone tries to download it.
+          fail_on_unmatched_files: true
+          generate_release_notes: true
+          body: |
+            Windows build of Sweep Design ${{ github.ref_name }}, x86-64.
+
+            **Download** `SweepDesign-${{ github.ref_name }}-windows-x64.zip`,
+            unpack the whole folder anywhere you can write to, and run
+            `SweepDesign.exe`. The folder is the program -- the .exe on its own
+            will not start. No installer, no Python needed.
+
+            Settings are auto-saved to `sweep_design_state.json` beside the
+            .exe, or to `%APPDATA%\SweepDesign\` if that folder is read-only.
+
+            The executable is unsigned, so SmartScreen will warn on first run
+            ("More info" -> "Run anyway"). Signing needs a paid certificate.
+
+            Requires Windows 10 or later on x86-64; ARM machines are not
+            covered by this build. Runs from source on Linux and macOS too --
+            see the README.
+
+            Public domain (The Unlicense). No warranty.
