@@ -201,8 +201,22 @@ sits next to the .exe. This matters — under a one-file build the naive
 `__file__` path points into PyInstaller's temp extraction directory, which
 Windows deletes on exit, so every setting would silently vanish between
 runs. If you unpack into `C:\Program Files\`, where standard users cannot
-write, it falls back to `%APPDATA%\SweepDesign\`. The About box always
-shows the resolved path, so you can check where it actually went.
+write, it falls back to `%APPDATA%\SweepDesign\`. The About box names the
+files and says **which of the two folders** was used — "beside the
+program" or "per-user config folder (program folder not writable)" — so
+you can tell where they went.
+
+It deliberately does **not** print the absolute path, and neither does any
+status line or the `--selftest` report. This program gets shared,
+screenshotted and demoed, and a full path describes the machine it is
+running on rather than the program; the person sharing it did not choose
+to publish their directory tree. Everything user-visible goes through
+`display_path()`, which reduces a file in the program's folder to its
+name, anything under the user's home to `~/...`, and anything else to its
+name as well — that last case is where a roaming `%APPDATA%` on a network
+share lands, and its real path would name the file server. `--selftest`
+enforces this, so a new message that interpolates a raw path will fail the
+build rather than reach a release.
 
 **HiDPI displays.** Handled, but worth understanding if you ever touch the
 layout code. On a display scaled to 125 % or 150 % — most Windows laptops
@@ -282,8 +296,29 @@ fails the job if it does not pass. You can run the same check on any copy:
 SweepDesign.exe --selftest report.txt
 ```
 
-It writes a real file in every export format the program offers and does a
-known-answer check on the engine, then exits 0 or 1. That specific test
+It writes a real file in every export format the program offers, does a
+known-answer check on the engine, checks the vibrator force model by
+its slopes (12 dB/octave stroke, 6 dB/octave flow, flat hold-down) and by
+confirming drive level is applied exactly once, and round-trips the saved-
+vibrator library through a temporary file (including that one malformed
+entry is skipped rather than losing the rest), and renders the bundled
+README into the HTML manual the Help button opens — checking every heading
+survives, no in-page link is dead, no raw markdown reaches the reader and
+every fenced code block comes out character for character. It also writes
+a SEG-Y file in both sample formats and reads it back with its own reader,
+comparing every sample and every header field it wrote, and does the same
+for the ASCII table through `numpy.loadtxt` and for the Petrel wavelet
+through its own parser — including that `WAVELET-TFS` plus the 0-based
+offset column lands back on the same time axis as the SEG-Y delay field,
+which is the one way that layout goes quietly wrong. A file of samples,
+unlike a figure, carries no visible evidence that it is right, so nothing
+short of decoding it again proves the bytes landed where the standard
+says. Then it
+exits 0 or 1. **The manual check is why `README.md` must stay in the spec's
+`datas`**: in a frozen build the manual is read from the bundle
+(`sys._MEIPASS`), and dropping it there would leave Help with nothing to
+show while every other test still passed. That
+specific export test
 exists because v1.0 shipped unable to export SVG: matplotlib loads output
 backends lazily inside `savefig()`, so PyInstaller never saw the import,
 and every other check in this file passed on a build that could not save
@@ -298,8 +333,61 @@ Then, by hand, beyond "it opens":
 2. Export both a PNG and an SVG. The footer, the metrics key and the table
    must all appear in the exported file, not just on screen.
 3. Resize the window from small to maximised. Text must not collide or
-   overflow at any size.
-4. Close the program, reopen it, and confirm your sweep parameters came
-   back. This is the check that catches a broken state path.
-5. Test on a machine that has never had Python installed. A missing
-   runtime DLL will only show up there.
+   overflow at any size. **Do this in both views** — they share one layout
+   solver but not one set of axis labels, and the field view's log-scaled
+   force panel carries a second, in-panel legend the sweep view does not.
+4. Switch to **Field model** with a heavy and a light vibrator on the plot.
+   The two achievable-force curves must separate, each one's knee must sit
+   at the vertical marker, and the vibrator readout panel must show the
+   settings currently on the Vibrator tab.
+5. Toggle the Vibrator tab between SI and field units. The numbers must
+   convert and the labels must change together; a value that changes
+   without its label (or the reverse) is the bug that turns a 26 t vibrator
+   into a 26,000 lb one.
+6. Enter a real machine's figures **in field units**, click **Save
+   vibrator**, then close and reopen. It must be in the Preset list, and
+   `sweep_design_vibrators.json` must hold the pounds and inches you typed,
+   under `"units": "Field"`. Then save a second machine with the tab set to
+   SI and confirm that entry says `"units": "SI"` with the stroke in
+   millimetres. Two entries in different units in one file, both reading
+   back to the same forces, is the property that matters here — a value
+   written in one system and read in the other turns a 26 t vibrator into a
+   26,000 lb one.
+7. Close the program, reopen it, and confirm your sweep parameters, the
+   vibrator fields, the chosen units and the chosen view came back. This is
+   the check that catches a broken state path.
+8. Delete `sweep_design_state.json` and reopen. The saved vibrators must
+   still be there — that separation is the whole reason they are in their
+   own file.
+9. Click **Help**. The manual must open in the default browser with its
+   contents sidebar, tables and code blocks intact — this is the check
+   that catches `README.md` having fallen out of the bundle, which nothing
+   about the program's own behaviour would reveal. Then **Print** it and
+   confirm the preview drops the sidebar and does not split a table across
+   pages.
+10. Open **About**. It should be a short box — name, version, file paths,
+    licence — not a wall of text. If technical detail has crept back in,
+    it belongs in the README instead, where Help will pick it up.
+11. Click **Traces (data)...** with two sweeps of different lengths on the
+    plot, tick everything, and export. Eight files must appear beside each
+    other — four tables plus a `.wlt` per sweep per content, since the
+    Petrel layout holds one wavelet each. Then load `..._wavelet.sgy` into
+    whatever package you actually use: the zero-lag peak must sit at time
+    **zero**, not halfway along
+    the trace — that is the check that the negative delay recording time
+    survived the trip, and the one thing no amount of testing here can
+    settle, because it depends on whether the reader honours the field.
+    Load the ASCII file too; every line that is not a `#` comment must be
+    the same number of columns.
+12. Import `..._wavelet_1.wlt` into the package that wanted the Petrel
+    layout. The zero-lag peak must again land at time **zero**, which is
+    the check that `WAVELET-TFS` was read — the time column in the file
+    starts at 0 either way, so a package that ignores `WAVELET-TFS` shows
+    the peak half a wavelet late and looks perfectly plausible doing it.
+14. Repeat that export with **Half, from zero lag** and half the sample
+    count. The file must be half the size and start at the peak.
+15. Put two sweeps at *different sample intervals* on the plot and try to
+    export. It must refuse with a message naming both intervals, and it
+    must refuse **before** asking where to put the file.
+16. Test on a machine that has never had Python installed. A missing
+    runtime DLL will only show up there.

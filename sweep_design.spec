@@ -17,7 +17,9 @@ a = Analysis(
     # Shipped inside the bundle so the exe is self-explanatory on a machine
     # that never saw the source. Neither is loaded at runtime.
     datas=[("README.md", "."), ("LICENSE", ".")],
-    # sweep_engine is a plain local import and is picked up automatically.
+    # sweep_engine, sweep_manual and sweep_export are plain local imports
+    # and are picked up automatically; none of them needs a hidden import
+    # of its own, because none of them imports anything lazily.
     # matplotlib's TkAgg backend likewise: sweep_design.py imports
     # backend_tkagg by name rather than only through matplotlib.use().
     #

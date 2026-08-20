@@ -2,6 +2,11 @@
 # exit -- not something to share or to keep in history.
 sweep_design_state.json
 
+# The user's saved vibrators. Unlike the state file this one is worth
+# keeping and copying between machines, but it describes whatever fleet the
+# person running the program works with -- it is their data, not the app's.
+sweep_design_vibrators.json
+
 # Local tool configuration; contains absolute paths from the machine it was
 # written on.
 .claude/
@@ -10,6 +15,15 @@ sweep_design_state.json
 # deliberately and IS tracked; these are whatever was on screen at the time.
 sweep_comparison_*.svg
 sweep_comparison_*.png
+
+# Ad-hoc exports from Traces (data)... The file dialog opens in the program
+# folder, so these land here by default. They are somebody's working data,
+# and a .sgy is large; the repo should never hold either. Note none of these
+# patterns matches sweep_export.py, which is source and IS tracked.
+sweep_export_*.txt
+/*.sgy
+/*.segy
+/*.wlt
 
 # PyInstaller output (see BUILD.md)
 build/

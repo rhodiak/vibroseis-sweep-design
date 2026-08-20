@@ -12,10 +12,24 @@ point of the program: long tapers cost 2.6 dB of trough depth (`P/T`) and
 2 ms of resolution (`MLW`) but cut the ringing from 273 ms to 114 ms
 (`T40dB`), and the narrow band rings for 1.5 seconds.
 
-Two files:
+Four files:
 
 - `sweep_engine.py` — signal generation & analysis (no GUI, importable/testable on its own)
-- `sweep_design.py` — tkinter GUI that wires the engine to a 5-panel overlay plot
+- `sweep_design.py` — tkinter GUI that wires the engine to a two-view, six-panel overlay plot
+- `sweep_export.py` — ASCII, SEG-Y and Petrel wavelet writing (no GUI either; byte layout, kept where it can be tested)
+- `sweep_manual.py` — turns this README into the HTML manual the Help button opens
+
+Two views share the canvas. **Sweep design** is the sweep as you specify
+it — dimensionless, the reference a correlator would use. **Field model**
+is the same sweeps in kN, as a particular vibrator can actually radiate
+them, under its stroke, flow and hold-down limits. Switch between them
+with the radio above the tabs; both draw the same sweep set, and nothing
+is regenerated.
+
+Either view can be exported as a figure (SVG/PNG) or as the samples
+themselves — sweep and/or correlation wavelet, as an ASCII table, a SEG-Y
+rev 1 file and/or Petrel ASCII wavelets. See
+[Exporting traces](#exporting-traces).
 
 ## Run
 
@@ -32,6 +46,25 @@ newest; see [Version history](#version-history) for what was wrong with
 the older ones. To check a build is sound, `SweepDesign.exe --selftest`
 (or `python3 sweep_design.py --selftest`) writes a file in every export
 format and verifies the engine against known values.
+
+## Help and About
+
+**Help**, in the footer, opens this document as a formatted manual in your
+web browser — contents sidebar, working cross-references, and Ctrl+F over
+the whole thing. It is generated on the spot from the `README.md` bundled
+with the copy you are running, so it always describes *that* build rather
+than whatever is newest on GitHub, and it cannot drift out of step with
+the program the way a separately maintained manual would.
+
+For a PDF or a printed copy, use the browser's **Print → Save as PDF**.
+The page carries a print stylesheet: the navigation is dropped, colours go
+to black on white, and headings, tables and code blocks are kept from
+being split across a page break.
+
+**About** is deliberately short — what the program is, its version, where
+it keeps its settings and its vibrator library, and the licence. Everything
+technical lives in the manual, which is a better place to read 30 pages of
+reference than a message box.
 
 ## Workflow
 
@@ -60,20 +93,37 @@ format and verifies the engine against known values.
      of instantaneous frequency.
    - **Pulse**: cycles-under-envelope, for a short broadband Gaussian-windowed
      wavelet centered in the band (included for comparison, not a true sweep).
-3. Click **Add sweep to plot** — it overlays in a new color on all 5 panels:
-   Signal, Frequency vs Time, Amplitude Spectrum, Autocorrelation, and
-   Correlation Envelope (Hilbert envelope of the autocorrelation).
-4. Add more sweeps to compare side by side (colors cycle automatically).
+3. On the **Vibrator** tab: pick a size-class preset or type the machine's
+   own figures — hold-down weight, reaction mass, peak-to-peak stroke, peak
+   reaction-mass velocity, decoupling margin — in SI or field units. The
+   derived numbers (usable force, the frequency above which full force is
+   reachable, the stroke/flow crossover) update as you type. **Save
+   vibrator** files a machine you have entered under its own name so it
+   joins the preset list for good — worth doing once per unit in your
+   fleet rather than re-typing a spec sheet each session. See
+   "Vibrator force model" below.
+4. Click **Add sweep to plot** — it overlays in a new color on all 5 data
+   panels of both views: Signal, Frequency vs Time, Amplitude Spectrum,
+   Autocorrelation, and Correlation Envelope (Hilbert envelope of the
+   autocorrelation) in the sweep view; Vibrator Force Limits, Ground
+   Force, Force Spectrum, Energy per Octave and Force Autocorrelation in
+   the field view. The vibrator set at that moment is recorded **with**
+   the sweep, so a heavy unit and a light one can be overlaid.
+5. Add more sweeps to compare side by side (colors cycle automatically).
    **Remove last sweep** / **Clear all sweeps** as needed.
-5. Use the **Axis ranges / zoom** tab to type explicit x/y min/max for any
-   of the 5 panels (blank = auto-scale). Click **Apply zoom** to redraw
+6. Use the **Axis ranges / zoom** tab to type explicit x/y min/max for any
+   panel of either view (blank = auto-scale). Click **Apply zoom** to redraw
    with those bounds, or **Reset all to auto** to clear them. This only
    changes the data range shown inside the zoomed panel(s) -- every
    panel's position and size on the canvas is fixed and never shifts,
    regardless of what you zoom.
-6. Pick **SVG** or **PNG** and click **Export figure...** to save the current
-   overlay to disk.
-7. **Stacking (theoretical)**: set **Stack count (n)**, **Sweep separation
+7. Pick an **image format** (SVG or PNG) and click **Figure...** under
+   Export to save the current overlay as a picture. The two views export
+   separately — switch and export again for the other one. Click
+   **Traces (data)...** instead to export the *samples* — the sweep, its
+   autocorrelation wavelet, or both, as an ASCII table, a SEG-Y file
+   and/or Petrel ASCII wavelets. See "Exporting traces" below.
+8. **Stacking (theoretical)**: set **Stack count (n)**, **Sweep separation
    (m)**, and **Apparent velocity (m/s)**, then check **Also add stacked/
    array version** before clicking **Add sweep to plot**. This adds a
    second overlay trace alongside the single sweep: the coherent, noiseless
@@ -195,8 +245,140 @@ and restored automatically the next time you open the app -- so you pick
 up right where you left off. **Save settings** / **Load settings** in the
 footer let you save or revert manually at any point without exiting. Note
 this remembers your *form* (last-used parameters and zoom), not the
-sweeps already plotted on screen -- export those (SVG/PNG) if you want to
-keep them.
+sweeps already plotted on screen -- export those (as a figure or as
+[traces](#exporting-traces)) if you want to keep them.
+
+Vibrators saved with **Save vibrator** are deliberately *not* part of
+this. They live in their own file, are written the moment you save one
+rather than at exit, and survive a settings reset — see
+[Saving your own vibrators](#saving-your-own-vibrators).
+
+## Exporting traces
+
+**Export → Traces (data)...** writes the samples themselves rather than a
+picture of them: the sweep to load into acquisition or QC software as a
+pilot/reference trace, and the autocorrelation wavelet to see what a
+reflection will actually look like once the record is correlated. One
+trace per sweep on the plot, in the order they were added, so an overlay
+comparison stays a comparison in the file.
+
+The dialog has eight choices.
+
+| Choice | What it does |
+|---|---|
+| **What to write** | The sweep, the autocorrelation wavelet, or both. Each goes to its own file. |
+| **Take it from** | *Sweep design* — the sweep as specified, dimensionless. *Field model* — the ground force the recorded vibrator can actually radiate, in newtons, stroke/flow/hold-down limits included. Defaults to whichever view is on screen. |
+| **Amplitude** | *As computed* leaves the numbers alone, so a longer or harder-driven sweep really is bigger. *Normalized* divides the whole set by one shared maximum: the loudest trace peaks at 1 and the rest keep their true size relative to it. Never per-trace — that would throw the comparison away. |
+| **Wavelet length** | *Full, symmetric* centres the trace on the zero-lag peak. *Half, from zero lag* keeps only the positive side; the autocorrelation is an even function, so this discards nothing and halves the file. |
+| **Samples per trace** | How many samples of wavelet. Blank means the whole autocorrelation (twice the sweep length, and nearly all of it zeros). A live line under the box translates the count into milliseconds of lag. An even count on a symmetric wavelet is rounded up by one so the peak gets a sample of its own. The **sweep** is always written at its own full length. |
+| **File formats** | ASCII table, SEG-Y, Petrel ASCII wavelet, or any combination. |
+| **SEG-Y sample format** | IBM 32-bit float (format code 1, the historical default, read by everything, good to ~7 digits) or IEEE 32-bit float (code 5, exact, standard since revision 1). |
+
+You are asked for one **base name** and the program derives the rest, so
+"`sweep_export`" with everything ticked produces `sweep_export_sweep.txt`,
+`sweep_export_sweep.sgy`, `sweep_export_wavelet.txt` and
+`sweep_export_wavelet.sgy`, plus a `.wlt` per sweep if the Petrel format
+is ticked.
+
+### What is in the files
+
+**ASCII** is one whitespace-delimited table: a `#` comment block naming
+every trace, its parameters and its vibrator, then a `time_ms` column
+followed by one amplitude column per sweep. It loads with
+`numpy.loadtxt(path)` with no arguments, and reads fine in `awk`, a
+spreadsheet or an editor.
+
+The time column is in **milliseconds**, matching everything else the
+program quotes — sample interval, taper lengths, wavelet window, and the
+SEG-Y delay field. A full symmetric wavelet therefore starts at a
+negative time (`-500.000000` for a 1001-sample wavelet at 1 ms), and that
+first value is the same number SEG-Y carries in its delay recording time.
+
+**SEG-Y** is revision 1, big-endian, fixed trace length, one trace per
+sweep. The sweep-description fields in each trace header are filled in
+from that sweep's own parameters rather than left at zero:
+
+| Bytes | Field | Value |
+|---|---|---|
+| 29–30 | trace identification | 6 (sweep) for a sweep, 1 (seismic data) for a wavelet |
+| 109–110 | delay recording time | 0, or **negative** for a symmetric wavelet |
+| 125–126 | correlated | 1 for a sweep, 2 for a wavelet |
+| 127–130 | sweep frequency start / end | `f1`, `f2` in Hz |
+| 131–132 | sweep length | ms |
+| 133–134 | sweep type | 1 linear, 3 for the dB/octave and dB/Hz laws, 4 otherwise |
+| 135–138 | taper length start / end | ms |
+| 139–140 | taper type | 2 for Cosine, 3 for Blackman |
+
+The negative delay is the part worth knowing about: a symmetric wavelet's
+first sample precedes zero lag, and that offset is what puts the zero-lag
+peak at time zero instead of half a wavelet in. Software that ignores the
+delay field will show the peak in the middle of the trace instead.
+
+**Petrel ASCII wavelet** (`.wlt`) is the keyword layout Petrel and its
+relatives import a wavelet from:
+
+```
+WAVELET-NAME  Linear, 6-120 Hz, 20 s, tapers 500/1000 ms... [wavelet]
+WAVELET-TFS   -500.00000000
+SAMPLE-RATE   1.00000000
+WAVELET-DESC  Sweep Design 1.1 -- exported traces
+              ...the same description block the other two formats carry...
+HISTORY       2026-08-20 14:07  Created by Sweep Design 1.1
+EOH
+            0.00       0.00428005
+            1.00      -0.00512217
+        ...
+         1000.00       0.00428005
+EOD
+```
+
+Two things about it differ from the ASCII table above, and both matter:
+
+- **One wavelet per file.** The layout has a single name and a single
+  amplitude column, so a plot with three sweeps produces three files —
+  `sweep_export_wavelet_1.wlt`, `_2`, `_3`, numbered in the order the
+  sweeps were added. A single sweep drops the number. Amplitude
+  normalization is still shared across the whole set, so the files stay
+  comparable with each other.
+- **The time column is a 0-based offset**, not the wavelet's real time
+  axis. It counts `0, dt, 2dt …` whatever the wavelet is; the true time
+  of the first sample is carried once, in `WAVELET-TFS`. A full symmetric
+  wavelet therefore has `WAVELET-TFS -500.0` and a column running 0 to
+  1000, and software that ignored `WAVELET-TFS` would place the zero-lag
+  peak half a wavelet late. `WAVELET-TFS` and `SAMPLE-RATE` are both in
+  milliseconds, the same numbers the ASCII table and the SEG-Y delay
+  field use.
+
+`WAVELET-NAME` is the sweep's label with `[sweep]` or `[wavelet]`
+appended, so the two files from one sweep do not collide once imported.
+Names are trimmed to fit the layout's 80-column line; the untrimmed label
+is always in `WAVELET-DESC`.
+
+This format is offered because it is what some interpretation packages
+want, not as a replacement for the ASCII table — the table exists so
+several sweeps compare in one file, which this layout cannot express. It
+is the one format that is **off by default**.
+
+### Limits and edge cases
+
+- **One sample interval per file.** SEG-Y allows only one, so sweeps on
+  the plot at different sample intervals are refused with a message
+  naming them — before you are asked where to put the file, not after.
+  Export them separately.
+- **Different lengths are zero-padded** to the longest, and the header
+  says so. Silence after a short sweep ends is the honest continuation;
+  resampling would not be.
+- **Sample count is a 16-bit field.** Above 32767 samples per trace the
+  file is still written correctly, but some readers treat that field as
+  signed and will misread it, so you get a warning first. Above 65535 the
+  export is refused; shorten the sweep, widen the sample interval, or ask
+  for fewer wavelet samples.
+- **Units.** A design sweep is dimensionless (±1 at 100% drive level);
+  the field-model force trace is in newtons and is tagged as such in the
+  SEG-Y trace value measurement unit field. A correlation wavelet is in
+  amplitude² × seconds (or N² × seconds), which the standard has no code
+  for, so that field is left at zero and the units are stated in the
+  header text instead.
 
 ## Layout
 
@@ -363,6 +545,196 @@ to what real processing does (correlate each record against a fixed
 reference/pilot sweep, then sum the correlated results) and would
 overstate the gain.
 
+## Vibrator force model (Field model view)
+
+Everything in the sweep view is a dimensionless waveform: drive level in
+percent, amplitude 1.0. That is the sweep as *designed*. A real vibrator
+cannot deliver it at constant amplitude across the band, and the field
+view shows what it can deliver instead, in kN.
+
+![A heavy and a light vibrator on the same sweep](docs/field-example.png)
+
+The same 2–96 Hz, 12 s sweep at 70 % drive through a 26 t and an 11 t
+machine. The heavy unit holds 143 kN against the light one's 60 kN — 15 dB
+of correlated amplitude in the table — and reaches full force from 3.7 Hz
+instead of 5.4 Hz. Both roll off below their knee no matter what the sweep
+asks for.
+
+Peak ground force is bounded by three independent mechanical limits.
+Which one binds depends on frequency:
+
+| Limit | Law | Slope | Set by |
+|---|---|---|---|
+| Stroke | `F = m_r · (2πf)² · x_pk` | +12 dB/octave | reaction mass × half-stroke |
+| Flow | `F = m_r · (2πf) · v_pk` | +6 dB/octave | pump flow ÷ piston area |
+| Hold-down | `F = margin · m_hd · g` | flat | hold-down weight |
+
+The stroke curve is the lower of the first two below their crossover at
+`f = v_pk / (2π·x_pk)`, and the flow curve above it. The achievable force
+is the pointwise minimum of all three, and that curve is the whole
+heavy-versus-light question in one picture: **a bigger unit does not just
+push harder in the middle of the band, it moves the +12 dB/octave knee
+down**, because it carries both a larger reaction mass and a longer
+stroke. That is what buys the low end.
+
+Drive level is a percentage of the hold-down ceiling and is the only one
+of the three the operator can move. Lowering it also lowers the frequency
+at which full force becomes reachable — and at low enough drive the flow
+regime disappears entirely, because the stroke curve reaches the reduced
+target before the crossover.
+
+The ceiling is applied **in the time domain**, at each sample's
+instantaneous frequency. That is not an approximation of a filter; it is
+what the vibrator's control loop does, tracking one frequency at a time
+and delivering whatever force is available there. (Pulse is the one
+exception: it is broadband at every instant, so "the frequency at time t"
+is a fiction and the ceiling is applied as a filter instead.)
+
+Every field panel also carries a dotted trace: the same sweep with the
+flat hold-down ceiling and no stroke or flow limit at all. The gap
+between solid and dotted is what the low end of the sweep actually costs
+on that machine.
+
+**Built-in presets** are named by hold-down weight, not by a force rating
+— the usable force is derived from the weight and the decoupling margin
+and shown on the panel, rather than asserted. They are plausible
+representative figures for each size class, not the specs of any
+particular product. Type your own in if you have the real sheet; the
+fields accept SI or field units and convert what is already entered when
+you switch.
+
+### Saving your own vibrators
+
+**Save vibrator** files whatever is on the tab under the name in the
+**Label** field, and it then appears in the Preset list below the
+built-ins, on this and every later run. **Delete** removes one again,
+leaving the values in the fields so a mistaken delete costs nothing.
+Built-in presets cannot be overwritten or deleted, so the list can never
+show two different machines under one name.
+
+Saved vibrators go in `sweep_design_vibrators.json`, **not** in the
+settings file. Two reasons. The settings file is one session's working
+state and is rewritten on every exit; a library of real machines is
+reference data that took a spec sheet and some arithmetic to get right,
+and it has to survive a settings reset. And keeping it separate makes it
+a thing you can copy — hand the file to someone else and they have your
+fleet.
+
+Each entry is written **in the units it was entered in**, tagged with
+which those were. Type a spec sheet in pounds and inches and you will find
+pounds and inches in the file, ready to check line by line against the
+sheet it came from. The `units` tag is what keeps that unambiguous, and
+the file carries a legend for both systems so it explains itself to anyone
+opening it without this program to hand. Plain JSON, meant to be
+hand-editable:
+
+```json
+{
+  "version": 2,
+  "units_legend": {
+    "SI": "hold_down kg, reaction_mass kg, stroke_pp mm, mass_vel_pk m/s, decouple_pct %",
+    "Field": "hold_down lb, reaction_mass lb, stroke_pp in, mass_vel_pk in/s, decouple_pct %"
+  },
+  "vibrators": {
+    "HEMI-60": {
+      "units": "Field",
+      "hold_down": 62000.0,
+      "reaction_mass": 8250.0,
+      "stroke_pp": 3.5,
+      "mass_vel_pk": 41.2,
+      "decouple_pct": 80.0
+    }
+  }
+}
+```
+
+Entries in different unit systems can sit side by side in one file —
+each is converted on the way in, and everything downstream of that is SI,
+so the physics never sees a pound. If you hand-edit an entry into
+different units, change its `units` tag to match: that tag is the only
+thing telling the program what the numbers mean.
+
+A malformed entry — including one with an unrecognised `units` tag — is
+skipped with a note in the status line rather than taking the rest of the
+file down with it. One mistyped number should not cost you the other nine
+machines.
+
+Version-1 libraries (written by the first build of this feature, all-SI
+under the old `hold_down_kg`-style key names) still load, and are
+rewritten in the current form the next time you save a vibrator.
+
+### Getting peak mass velocity off a spec sheet
+
+Four of the five fields are printed on any vibrator data sheet. Peak mass
+velocity usually is not, and it is the one that sets where the +6 dB/octave
+stretch ends, so it is worth deriving rather than guessing. Spec sheets
+give the two things it comes from:
+
+```
+v_pk = (π/2) × pump flow / mass piston area
+```
+
+The π/2 is the sinusoid form factor. Instantaneous flow demand is
+`|A·v(t)|`, and the pump only has to supply its mean, which is 2/π of the
+peak — accumulators cover the rest within each cycle. Taking the raw
+`Q/A` instead treats the pump as if it fed the actuator directly and puts
+full force implausibly high up the band.
+
+Worked example, an IVI/TOSH HEMI-60: 530 LPM over a 20.54 in² piston is
+0.667 m/s, times π/2 is **1.047 m/s**. Cross-check that the sheet is
+self-consistent while you are there — its quoted peak force divided by
+the piston area should land on the hydraulic supply pressure (274,099 N ÷
+20.54 in² = 3000 psi exactly, for that machine).
+
+#### The LPM-over-in² trap
+
+Spec sheets mix systems: flow in litres per minute, piston area in square
+inches. Dividing those two numbers directly gives litres-per-minute per
+square inch, which is not a velocity — but it *looks* like one, because
+the two conversions very nearly cancel:
+
+```
+1 litre = 61.023744 in³
+1 LPM   = 61.023744 in³/min ÷ 60 s = 1.017062 in³/s
+```
+
+So `LPM ÷ in²` lands within **1.7 %** of the right answer in in/s. Close
+enough to pass a sanity check, wrong enough to carry into everything
+downstream. For the HEMI-60:
+
+| | |
+|---|---|
+| `530 / 20.54` | 25.80 — LPM per in², not a velocity |
+| `530 × 1.017062 / 20.54` | **26.24 in/s** = 0.6666 m/s |
+| × π/2 | **41.22 in/s** = 1.047 m/s ← the value to enter |
+
+As a one-liner: **in/s = LPM ÷ in² × 1.017**. The factor is so close to 1
+that it is easy to convince yourself it isn't there.
+
+### What this does not model
+
+Baseplate flexure and its resonance, the mass-decoupling nonlinearity
+near the limit, ground stiffness and coupling (which varies station to
+station by more than any of the effects modelled here), harmonic
+distortion, servo-valve dynamics and phase error, and the systematic
+difference between the weighted-sum ground force a vibrator *reports* and
+the force actually entering the earth.
+
+Nor does it model the step from ground force to the far-field wavelet:
+for a vertical point force on a half-space, far-field displacement is
+proportional to `dF/dt`, a further +6 dB/octave and a 90° rotation.
+
+So: **absolute kN from this model is order-of-magnitude.** The difference
+between two vibrators driven the same way is much more trustworthy than
+either one's absolute number, and that comparison is what the view is
+built for.
+
+One reading note: in the field view the metrics table describes the
+**force** wavelet rather than the dimensionless sweep, and the metrics
+key is not on screen (that panel carries the vibrator readout instead).
+The columns are the same ones documented under
+[The metrics table](#the-metrics-table-below-the-plots).
+
 ## Notes on the physics (see docstring in `sweep_engine.py` for detail)
 
 - Linear: constant Hz/s sweep rate.
@@ -390,6 +762,7 @@ nobody picks up a bad one by accident.
 
 | Version | Changes | Known problems |
 |---|---|---|
+| **1.1** | Vibrator force model and the Field model view: hold-down weight, reaction mass, stroke and flow limits turned into an achievable ground-force curve in kN, with SI/field units and size-class presets. New Vibrator tab and a view switch. Real machines can be saved by name to `sweep_design_vibrators.json` and picked from the preset list on later runs. New Help button opens the README as a formatted manual in the browser; About slimmed to basics. Sweeps and correlation wavelets can be exported as data — ASCII tables, SEG-Y rev 1 (IBM or IEEE floats) and/or Petrel ASCII wavelets, full or half wavelet, with the sample count you choose. | Not yet checked on Windows. |
 | **1.0** | First public release. | None reported. Checked on Windows 10 at 100 % and 150 % display scaling, 2560x1440. |
 
 Versions are `MAJOR.MINOR.PATCH`. `APP_VERSION` in `sweep_design.py` is the

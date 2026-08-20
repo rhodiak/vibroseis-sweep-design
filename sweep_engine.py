@@ -40,6 +40,15 @@ for real acquisition QC):
 All sweeps are returned as (t, signal, inst_freq) at the requested sample
 rate, drive-level-scaled, and with start/end tapers applied last.
 
+- Vibrator force model: everything above is a dimensionless waveform. A
+  real unit's peak ground force is capped by reaction-mass stroke at the
+  bottom of the band, by hydraulic flow just above it, and by the
+  hold-down weight everywhere else -- so the same sweep comes out of a
+  heavy vibrator and a light one as two different signals. See the
+  VIBRATOR FORCE MODEL block further down for the three limit laws, what
+  they do and do not account for, and how far the absolute numbers can be
+  trusted.
+
 NORMALIZATION POLICY (important for comparing sweeps):
 compute_spectrum() and compute_autocorrelation() return RAW, unnormalized
 magnitudes -- they do NOT force each trace to its own peak of 1 / 0 dB.
@@ -359,6 +368,387 @@ def stack_sweep(sig: np.ndarray, fs: float, n: int, spacing_m: float = 0.0,
     AF = array_response_complex(freqs, n, spacing_m, velocity_mps)
     stacked_spec = n * AF * spec
     return np.fft.irfft(stacked_spec, n=len(sig))
+
+
+# ====================================================================
+# VIBRATOR FORCE MODEL
+# ====================================================================
+# Everything above this line describes a sweep as a dimensionless
+# waveform: a drive level in percent, an amplitude of 1.0. That is the
+# THEORETICAL sweep -- the reference signal a correlator would use.
+#
+# A real vibrator cannot deliver that waveform at constant amplitude
+# across the band. Its peak ground force is bounded by three independent
+# mechanical limits, and which one binds depends on frequency:
+#
+#   stroke limit      F = m_r * (2*pi*f)^2 * x_pk          (+12 dB/octave)
+#       The reaction mass has to travel far enough to generate the force,
+#       and it only has so much room. Binds at the very bottom of the
+#       band.
+#
+#   flow limit        F = m_r * (2*pi*f) * v_pk            (+6 dB/octave)
+#       The pump delivers a finite fluid volume per second, so the
+#       reaction mass has a peak VELOCITY ceiling v_pk = Q/A_piston.
+#       Displacement available at frequency f is then v_pk/(2*pi*f),
+#       giving a force that rises only as f. Binds just above the stroke
+#       region: the two cross at f = v_pk / (2*pi*x_pk), below which the
+#       quadratic stroke curve is the lower of the two.
+#
+#   hold-down limit   F = (decouple_pct/100) * m_hd * g    (flat)
+#       Peak ground force above the hold-down weight lifts the baseplate
+#       off the ground -- it decouples, radiates a distorted wavelet and
+#       hammers the pad. The manufacturer's usable-force rating is the
+#       hold-down weight derated by a safety margin (70-80% in normal
+#       practice). Drive level is a percentage OF THIS, and it is the
+#       only one of the three limits the operator can move.
+#
+# The achievable ground force is the pointwise minimum, and that is the
+# whole "heavy vibrator vs light vibrator" question in one curve: a
+# bigger unit does not merely push harder in the middle of the band, it
+# moves the +12 dB/octave knee DOWN, because it carries both a larger
+# reaction mass and a longer stroke. That is what buys the low end.
+#
+# WHAT THIS MODEL DOES NOT INCLUDE, and should not be read as including:
+# baseplate flexure and its resonance, the mass-decoupling nonlinearity
+# near the limit, ground stiffness/coupling (which varies station to
+# station by more than any of the effects modelled here), harmonic
+# distortion, servo-valve dynamics and phase error, and the systematic
+# difference between the weighted-sum ground force a vibrator REPORTS
+# and the force actually entering the earth. Absolute levels from this
+# model are order-of-magnitude. Differences BETWEEN two vibrators driven
+# the same way are much more trustworthy than either one's absolute kN,
+# and that comparison is what it is built for.
+
+G0 = 9.80665            # standard gravity, m/s^2
+
+# Unit conversions. Vibrator spec sheets are quoted in field units almost
+# everywhere in the world that runs Vibroseis, but the physics above only
+# works in SI, so SI is what is stored and these are applied at the edge.
+KG_PER_LB = 0.45359237
+M_PER_IN = 0.0254
+LBF_PER_KN = 224.808943
+UNIT_SYSTEMS = ("SI", "Field")
+
+
+@dataclass
+class VibratorParams:
+    """One vibrator's mechanical limits. All fields SI; see UNIT_SYSTEMS."""
+    label: str = "Heavy (26 t hold-down)"
+    hold_down_kg: float = 26000.0      # mass bearing on the baseplate
+    reaction_mass_kg: float = 3400.0   # the moving mass
+    stroke_pp_m: float = 0.152         # peak-to-peak, as spec sheets quote it
+    mass_vel_pk_mps: float = 2.0       # pump flow / piston area
+    decouple_pct: float = 80.0         # usable fraction of the hold-down weight
+    # Which unit system these numbers were TYPED in. Metadata only: no force
+    # law reads it, and every field above stays SI regardless. It exists so a
+    # saved vibrator can be written back to its library file in the units its
+    # spec sheet used, which is how the person who entered it will recognise
+    # it. See VIB_UNIT_FACTORS.
+    entry_units: str = "SI"
+
+    @property
+    def stroke_pk_m(self) -> float:
+        """Half the peak-to-peak stroke -- the amplitude the force law wants."""
+        return 0.5 * self.stroke_pp_m
+
+    @property
+    def hold_down_force_n(self) -> float:
+        return self.hold_down_kg * G0
+
+    @property
+    def rated_force_n(self) -> float:
+        """Usable peak ground force at 100% drive, i.e. the flat ceiling."""
+        return (self.decouple_pct / 100.0) * self.hold_down_force_n
+
+    def target_force_n(self, drive_pct: float) -> float:
+        return max(drive_pct, 0.0) / 100.0 * self.rated_force_n
+
+    @property
+    def f_stroke_flow_hz(self) -> float:
+        """Where the stroke and flow limits cross: f = v_pk / (2*pi*x_pk).
+
+        Below it the +12 dB/octave stroke curve is the binding one; above
+        it the +6 dB/octave flow curve is."""
+        x = self.stroke_pk_m
+        if x <= 0:
+            return float("inf")
+        return self.mass_vel_pk_mps / (2.0 * np.pi * x)
+
+    def f_full_force_hz(self, drive_pct: float) -> float:
+        """Lowest frequency at which the target force is actually reachable.
+
+        The single most useful number this model produces: below it the
+        sweep is running at reduced force no matter what the drive level
+        says, and no amount of sweep length recovers energy the machine
+        never radiated."""
+        m = self.reaction_mass_kg
+        f_t = self.target_force_n(drive_pct)
+        if m <= 0 or f_t <= 0:
+            return 0.0
+        cross = self.f_stroke_flow_hz
+        x, v = self.stroke_pk_m, self.mass_vel_pk_mps
+        # Try the stroke branch first; if its solution lies above the
+        # crossover the flow limit was the binding one there instead.
+        if x > 0:
+            f_stroke = np.sqrt(f_t / (m * x)) / (2.0 * np.pi)
+            if f_stroke <= cross:
+                return float(f_stroke)
+        if v > 0:
+            return float(f_t / (m * 2.0 * np.pi * v))
+        return float("inf")
+
+
+# Generic classes, named by hold-down weight rather than by any
+# manufacturer's force rating: the usable force follows from the weight
+# and the decoupling margin, and is shown alongside so the number is
+# derived in front of the user rather than asserted. These are plausible
+# representative figures for each size class, not any specific product.
+VIBRATOR_PRESETS = {
+    "Light (11 t hold-down)":
+        VibratorParams("Light (11 t hold-down)", 11000.0, 1400.0, 0.075, 1.4),
+    "Medium (18 t hold-down)":
+        VibratorParams("Medium (18 t hold-down)", 18000.0, 2200.0, 0.102, 1.7),
+    "Heavy (26 t hold-down)":
+        VibratorParams("Heavy (26 t hold-down)", 26000.0, 3400.0, 0.152, 2.0),
+    "Extra heavy (32 t hold-down)":
+        VibratorParams("Extra heavy (32 t hold-down)", 32000.0, 4200.0, 0.178, 2.2),
+}
+DEFAULT_PRESET = "Heavy (26 t hold-down)"
+
+# The mechanical fields, in the order a spec sheet tends to list them.
+# Saved vibrators are stored as these five and ALWAYS in SI, never in
+# whatever the Vibrator tab's unit toggle happened to be set to: a library
+# file has to mean the same thing on the next machine that opens it.
+VIB_ATTRS = ("hold_down_kg", "reaction_mass_kg", "stroke_pp_m",
+             "mass_vel_pk_mps", "decouple_pct")
+
+# Keys used in the library file. The SI unit suffix is dropped on purpose:
+# an entry saved in field units holds pounds, and a key called
+# "hold_down_kg" carrying 48044 lb would be a lie in the one place a reader
+# has nothing else to go on.
+VIB_FILE_KEYS = {
+    "hold_down_kg": "hold_down",
+    "reaction_mass_kg": "reaction_mass",
+    "stroke_pp_m": "stroke_pp",
+    "mass_vel_pk_mps": "mass_vel_pk",
+    "decouple_pct": "decouple_pct",
+}
+
+# Display units, as (factor, unit name) with display = SI * factor. The one
+# table behind both the Vibrator tab's fields and the library file, so a
+# value cannot be converted one way on screen and another way on disk.
+# (vibrator_summary formats the readout panel separately -- it quotes mass
+# in tonnes rather than kg, which is a prose choice, not a field edit.)
+VIB_UNIT_FACTORS = {
+    "SI": {
+        "hold_down_kg": (1.0, "kg"),
+        "reaction_mass_kg": (1.0, "kg"),
+        "stroke_pp_m": (1000.0, "mm"),
+        "mass_vel_pk_mps": (1.0, "m/s"),
+        "decouple_pct": (1.0, "%"),
+    },
+    "Field": {
+        "hold_down_kg": (1.0 / KG_PER_LB, "lb"),
+        "reaction_mass_kg": (1.0 / KG_PER_LB, "lb"),
+        "stroke_pp_m": (1.0 / M_PER_IN, "in"),
+        "mass_vel_pk_mps": (1.0 / M_PER_IN, "in/s"),
+        "decouple_pct": (1.0, "%"),
+    },
+}
+
+
+def vib_unit_note(units: str) -> str:
+    """'hold_down lb, reaction_mass lb, ...' -- a legend for the file."""
+    table = VIB_UNIT_FACTORS[units]
+    return ", ".join(f"{VIB_FILE_KEYS[a]} {table[a][1]}" for a in VIB_ATTRS)
+
+
+def vibrator_to_dict(vib: VibratorParams) -> dict:
+    """One vibrator as it should appear in the library file.
+
+    Written in the units it was ENTERED in, tagged with which those were.
+    Someone who typed a spec sheet in pounds and inches should find pounds
+    and inches in the file; storing everything in SI made every entry need
+    a conversion in the reader's head before it could be checked against
+    the sheet it came from.
+
+    The label is deliberately left out -- it is the key the vibrator is
+    filed under, so storing it twice invites the two copies to disagree."""
+    units = vib.entry_units if vib.entry_units in VIB_UNIT_FACTORS else "SI"
+    table = VIB_UNIT_FACTORS[units]
+    out = {"units": units}
+    for attr in VIB_ATTRS:
+        out[VIB_FILE_KEYS[attr]] = float(getattr(vib, attr)) * table[attr][0]
+    return out
+
+
+def vibrator_from_dict(label: str, data: dict) -> VibratorParams:
+    """Inverse of vibrator_to_dict. Raises ValueError on anything unusable.
+
+    Hand-editing the library file is expected -- it is plain JSON sitting
+    beside the settings, and copying one between crews is the point -- so a
+    missing or nonsensical field has to fail loudly here. Left to reach
+    force_limits, a zero or a NaN produces an all-zero force curve, which
+    looks like a modelling result rather than a typo.
+
+    An entry with no "units" key is a version-1 file: those were written in
+    raw SI under the attribute names, so they are read that way and get
+    rewritten in the new form the next time the library is saved."""
+    if not isinstance(data, dict):
+        raise ValueError(f"{label}: entry is not a set of parameters")
+    legacy = "units" not in data
+    units = "SI" if legacy else data["units"]
+    if units not in VIB_UNIT_FACTORS:
+        raise ValueError(f"{label}: unknown units {units!r} "
+                          f"(expected one of {', '.join(VIB_UNIT_FACTORS)})")
+    table = VIB_UNIT_FACTORS[units]
+    kwargs = {}
+    for attr in VIB_ATTRS:
+        # Legacy entries are keyed by the SI attribute name and need no
+        # conversion; new ones use the neutral key and the units tag.
+        key = attr if legacy else VIB_FILE_KEYS[attr]
+        factor = 1.0 if legacy else table[attr][0]
+        if key not in data:
+            raise ValueError(f"{label}: missing {key}")
+        try:
+            val = float(data[key])
+        except (TypeError, ValueError):
+            raise ValueError(f"{label}: {key} is not a number")
+        if not np.isfinite(val) or val <= 0:
+            raise ValueError(f"{label}: {key} must be a positive number")
+        kwargs[attr] = val / factor
+    if kwargs["decouple_pct"] > 100:
+        raise ValueError(f"{label}: decouple_pct cannot exceed 100")
+    return VibratorParams(label=label, entry_units=units, **kwargs)
+
+
+def force_limits(freqs: np.ndarray, vib: VibratorParams,
+                  drive_pct: float = 100.0) -> dict:
+    """The three force ceilings and their minimum, in newtons, vs frequency.
+
+    Keys: 'stroke', 'flow', 'target', 'available' -- all arrays matching
+    freqs, so they can be overlaid directly. 'target' is the flat
+    hold-down ceiling after the drive level; 'available' is the pointwise
+    minimum, i.e. what the machine can actually deliver."""
+    f = np.asarray(freqs, dtype=float)
+    w = 2.0 * np.pi * f
+    m = vib.reaction_mass_kg
+    stroke = m * w ** 2 * vib.stroke_pk_m
+    flow = m * w * vib.mass_vel_pk_mps
+    target = np.full_like(f, vib.target_force_n(drive_pct))
+    available = np.minimum(np.minimum(stroke, flow), target)
+    return {"stroke": stroke, "flow": flow, "target": target,
+            "available": available}
+
+
+def apply_force_model(sig: np.ndarray, inst_freq: np.ndarray, fs: float,
+                       vib: VibratorParams, drive_pct: float = 100.0,
+                       mode: str = "time") -> np.ndarray:
+    """Convert a dimensionless sweep into ground force in NEWTONS.
+
+    `sig` is what generate_sweep() returned, so the drive level is
+    already baked into its amplitude; it is divided back out here and
+    reapplied through the vibrator's force ceiling, which is where drive
+    level physically acts. Passing the drive twice would square it.
+
+    mode="time" evaluates the force ceiling at each sample's
+    instantaneous frequency. That is not an approximation of a filter --
+    it is what the vibrator's control loop actually does, tracking one
+    frequency at a time and delivering whatever force is available there.
+    Use it for every swept type.
+
+    mode="spectral" applies the same ceiling as a zero-phase filter
+    across the whole spectrum. Use it for Pulse, where the signal is
+    broadband at every instant and "the frequency at time t" is a
+    fiction.
+    """
+    s = np.asarray(sig, dtype=float)
+    drive = max(drive_pct, 0.0) / 100.0
+    if drive <= 0 or s.size == 0:
+        return np.zeros_like(s)
+    unit = s / drive          # back to the +/-1 waveform, tapers intact
+
+    if mode == "spectral":
+        freqs = np.fft.rfftfreq(len(unit), d=1.0 / fs)
+        avail = force_limits(freqs, vib, drive_pct)["available"]
+        return np.fft.irfft(np.fft.rfft(unit) * avail, n=len(unit))
+
+    f_t = np.abs(np.asarray(inst_freq, dtype=float))
+    # A NaN instantaneous frequency means the type has no meaningful
+    # f(t); fall back to the flat ceiling there rather than zeroing the
+    # sample, which would punch a hole in the waveform.
+    f_t = np.where(np.isfinite(f_t), f_t, 0.0)
+    avail = force_limits(f_t, vib, drive_pct)["available"]
+    return unit * avail
+
+
+def energy_per_octave(freqs: np.ndarray, mag: np.ndarray) -> np.ndarray:
+    """Linear energy density per OCTAVE from an amplitude spectrum.
+
+    Energy in a band is the integral of |S(f)|^2 df, so the density per
+    unit log2(f) is |S(f)|^2 * f * ln2. Raw and unnormalized, like every
+    other spectral quantity here -- the caller picks one shared reference
+    across the overlay set. See energy_per_octave_db()."""
+    f = np.asarray(freqs, dtype=float)
+    m = np.asarray(mag, dtype=float)
+    return (m ** 2) * f * np.log(2.0)
+
+
+def energy_per_octave_db(freqs: np.ndarray, mag: np.ndarray,
+                          ref: float = None) -> np.ndarray:
+    """Energy per octave in dB -- energy_per_octave() against a reference.
+
+    Plotting this instead of the amplitude spectrum answers a different
+    and more practical question: not "how tall is the spectrum here" but
+    "how much of the sweep's energy actually went into this octave" --
+    which is the question a low-frequency force limit changes most.
+
+    `ref` is a shared linear reference (as elsewhere in this module, the
+    caller supplies one common value across the overlay set); if None the
+    curve is referenced to its own maximum."""
+    dens = energy_per_octave(freqs, mag)
+    if ref is None:
+        ref = float(dens.max()) if dens.size and dens.max() > 0 else 1.0
+    ref = ref if ref > 0 else 1.0
+    return 10.0 * np.log10(np.maximum(dens, ref * 1e-12) / ref)
+
+
+def vibrator_summary(vib: VibratorParams, drive_pct: float = 100.0,
+                      units: str = "SI") -> list:
+    """(name, value) rows describing one vibrator, for a text panel."""
+    field = (units == "Field")
+    rated_kn = vib.rated_force_n / 1000.0
+    target_kn = vib.target_force_n(drive_pct) / 1000.0
+
+    def force(kn):
+        return (f"{kn * LBF_PER_KN:,.0f} lbf" if field else f"{kn:,.1f} kN")
+
+    def mass(kg):
+        return (f"{kg / KG_PER_LB:,.0f} lb" if field else f"{kg / 1000.0:,.1f} t")
+
+    def length(m):
+        return (f"{m / M_PER_IN:.2f} in" if field else f"{m * 1000.0:.0f} mm")
+
+    def speed(mps):
+        return (f"{mps / M_PER_IN:.1f} in/s" if field else f"{mps:.2f} m/s")
+
+    return [
+        ("Hold-down weight", mass(vib.hold_down_kg)),
+        ("Reaction mass", mass(vib.reaction_mass_kg)),
+        ("Stroke (pk-pk)", length(vib.stroke_pp_m)),
+        ("Peak mass velocity", speed(vib.mass_vel_pk_mps)),
+        ("Decoupling margin", f"{vib.decouple_pct:g}%"),
+        ("Usable force (100% drive)", force(rated_kn)),
+        (f"Target force ({drive_pct:g}% drive)", force(target_kn)),
+        ("Full force above", f"{vib.f_full_force_hz(drive_pct):.2f} Hz"),
+        ("Stroke/flow crossover", f"{vib.f_stroke_flow_hz:.2f} Hz"),
+    ]
+
+
+def describe_vibrator(vib: VibratorParams, drive_pct: float = 100.0) -> str:
+    """Compact one-line vibrator tag, for appending to a sweep's legend."""
+    return (f"{vib.label}, {vib.target_force_n(drive_pct) / 1000.0:.0f} kN "
+            f"@ {drive_pct:g}%, full >{vib.f_full_force_hz(drive_pct):.1f} Hz")
 
 
 RING_FLOOR_DB = -40.0   # level (below the peak) at which correlation
